@@ -17,13 +17,21 @@ Landesrecht sind nicht enthalten.
 
 Bei jeder Anfrage, in der konkrete österreichische Judikatur gesucht wird:
 - nach Geschäftszahl / Aktenzeichen
-- nach Norm (Paragraph + Gesetz, z. B. `1319a ABGB`)
+- nach Norm (Format `{Gesetzeskürzel} §{Paragraph}`, z. B. `ABGB §1319a`)
 - nach Stichworten / Schlagworten
 - nach Zeitraum (`EntscheidungsdatumVon`/`Bis`)
 - nach Rechtssatz-Nummer (z. B. `RS0123456`)
 
-Nicht anwenden bei rein dogmatischen oder rechtspolitischen Fragen ohne
-Bezug zu konkreten Entscheidungen, oder wenn Bundes-/Landesrecht gemeint ist.
+Nicht anwenden, wenn:
+- die Frage rein dogmatisch / rechtspolitisch ist, ohne Bezug zu einer
+  konkreten Entscheidung (z. B. "Was sagt die Lehre zu §..." → Kommentar,
+  nicht RIS),
+- Bundes-/Landesrecht gemeint ist (Gesetzestext, nicht Rechtsprechung),
+- nach EuGH/EGMR-Urteilen gefragt wird (RIS enthält nur österreichische
+  Gerichte; ggf. wird die österreichische Folgejudikatur gesucht — dann
+  Skill anwenden, aber den Hinweis geben),
+- nach laufenden Verfahren oder Pressemitteilungen gefragt wird (RIS
+  enthält nur veröffentlichte Entscheidungen).
 
 ## API-Grundlagen
 
@@ -59,14 +67,22 @@ Plus **mindestens einer** dieser Suchparameter (sonst HTTP 400):
 |---|---|---|
 | `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT |
 | `Geschaeftszahl` | `5Ob234/20b` | exakte Aktenzeichen-Suche |
-| `Norm` | `1319a ABGB` | Paragraph plus Gesetz |
+| `Norm` | `ABGB §1319a` | **Format: `{Gesetzeskürzel} §{Paragraph}`** (kanonische Zitierform) — andere Reihenfolgen wie `1319a ABGB` liefern fast keine Treffer. Für EU-Verordnungen (z. B. DSGVO) ist der `Norm`-Index unzuverlässig; lieber Volltextsuche via `Suchworte`. |
 | `Rechtssatznummer` | `RS0123456` | bei OGH-Rechtssatz-Suche |
+| `Schlagworte` | `Datenschutz` | kontrolliertes RIS-Vokabular |
 | `EntscheidungsdatumVon` / `Bis` | `2024-01-01` | ISO-Datum |
 
 Optional:
-- `SucheNachRechtssatz=True`, `SucheNachText=True` (bei `Suchworte` empfohlen)
+- `SucheNachRechtssatz`, `SucheNachText` — steuern, in welchen Feldern
+  das `Suchworte`-Token gesucht wird (Rechtssatz-Text vs.
+  Entscheidungstext). **Nicht** ein Filter für Trefferarten — auch mit
+  `--no-rechtssatz` können Rechtssatz-Dokumente zurückkommen, wenn der
+  Suchbegriff im Volltext gefunden wurde. Das Skript sendet die Flags
+  nur bei `--suchworte`-Suchen.
 - `ImRisSeit` ∈ {`Undefined`, `EinerWoche`, `EinemMonat`, `DreiMonaten`, `SechsMonaten`, `EinemJahr`}
-- `Sortierung`, `SortDirection` ∈ {`Ascending`, `Descending`}
+- `Sortierung` ∈ {`Datum`, `Geschaeftszahl`, `Relevanz`} — die API toleriert
+  weitere Werte; nur die hier gelisteten sind in den RIS-Handbüchern dokumentiert.
+- `SortDirection` ∈ {`Ascending`, `Descending`}
 
 Pagination:
 - `DokumenteProSeite` ∈ {`Ten`, `Twenty`, `Fifty`, `OneHundred`} — Default `Twenty`
@@ -80,20 +96,48 @@ JSON-Parsing und Rendering in einem Aufruf.
 
 1. **Mapping**: User-Frage → `--applikation` + Suchparameter. Bei Unsicherheit
    `--applikation Justiz` + Volltext-Suche.
-2. **Aufruf**:
+
+2. **Aufruf** — das Skript liegt **immer** bei `scripts/ris_search.py`
+   relativ zum Skill-Ordner (dem Verzeichnis, das diese `SKILL.md` enthält).
+   Der absolute Pfad zum Skill-Ordner hängt von der Umgebung ab; Du als
+   ausführendes Modell weißt, in welcher Umgebung Du läufst.
+
+   **Generisches Aufrufmuster** — `cd` in den Skill-Ordner, dann relativ
+   aufrufen:
    ```bash
-   python3 scripts/ris_search.py \
+   cd <skill-folder> && python scripts/ris_search.py \
      --applikation Justiz \
      --suchworte "Mietzinsminderung" \
      --von 2020-01-01 --bis 2024-12-31 \
-     --pro-seite 20 --seite 1
+     --pro-seite Twenty --seite 1
    ```
+
+   **Python-Aufruf je Umgebung** — probiere in dieser Reihenfolge:
+   `python` → `python3` → `py -3`. Üblicherweise:
+   - Linux / macOS / Claude.ai-Sandbox: `python3` oder `python`
+   - Windows (Claude Code): `py -3` (`python3` fehlt meist im PATH)
+
+   **Skill-Ordner je Umgebung** — typische Pfade:
+   - Claude Code (Linux/macOS): `~/.claude/skills/ris-rechtsprechung/`
+   - Claude Code (Windows): `%USERPROFILE%\.claude\skills\ris-rechtsprechung\`
+   - Claude.ai Custom Skills: vom Harness gemounteter Pfad (meist unter
+     `/mnt/skills/...` oder `/home/.../skills/...`); folge der Pfadangabe,
+     die Dir der Skill-Loader liefert.
+
+   Falls `cd` in der Umgebung nicht zur Verfügung steht (manche Sandboxes),
+   verwende den absoluten Pfad zum Skript, z. B.:
+   ```bash
+   python "<skill-folder>/scripts/ris_search.py" --applikation Justiz ...
+   ```
+
    Ausgabe ist Markdown (Default) oder strukturiertes JSON (`--json`).
+
 3. **Antwort an den User**: die Top-Treffer mit Geschäftszahl, Datum,
    Leitsatz (sofern vorhanden) und RIS-Link weitergeben. Bei mehr als 10
    Treffern die ersten 10 ausführlich, den Rest als Bullet-Liste.
+
 4. **Pagination**: bei mehr als einer Seite vor jeder weiteren Anfrage
-   `sleep 1.5`.
+   ca. 1,5 s warten (RIS-Empfehlung).
 
 ## Skript-Output
 
@@ -133,9 +177,9 @@ Aus der Dokumentennummer ableitbar (Präfix → Pfad):
 
 | Präfix | Pfad |
 |---|---|
-| `JJT`, `JJR`, `JWT` | `https://ris.bka.gv.at/Dokumente/Justiz/{nr}/{nr}.html` |
-| `JFR`, `JFT` | `https://ris.bka.gv.at/Dokumente/Vfgh/{nr}/{nr}.html` |
-| `JWR` | `https://ris.bka.gv.at/Dokumente/Vwgh/{nr}/{nr}.html` |
+| `JJT`, `JJR` | `https://ris.bka.gv.at/Dokumente/Justiz/{nr}/{nr}.html` |
+| `JFT`, `JFR` | `https://ris.bka.gv.at/Dokumente/Vfgh/{nr}/{nr}.html` |
+| `JWT`, `JWR` | `https://ris.bka.gv.at/Dokumente/Vwgh/{nr}/{nr}.html` |
 | `BVWG` | `https://ris.bka.gv.at/Dokumente/Bvwg/{nr}/{nr}.html` |
 | `LVWG` | `https://ris.bka.gv.at/Dokumente/Lvwg/{nr}/{nr}.html` |
 | `DSB`  | `https://ris.bka.gv.at/Dokumente/Dsk/{nr}/{nr}.html` |
@@ -161,15 +205,58 @@ Trefferdatensatz und überlasse ihm das Lesen.
 
 ## Installation
 
-Dieser Skill ist als **globaler** Skill konzipiert:
+Im Repo liegt der Skill unter
+`recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung/` und ist
+**self-contained**: ein Ordner mit `SKILL.md` und `scripts/ris_search.py`.
+Da das Skript ausschließlich die Python-Standardbibliothek nutzt, ist
+keine Build-Phase und keine Pip-Installation nötig.
+
+### Claude Code (lokal, Linux/macOS)
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung \
+      ~/.claude/skills/
+```
+
+### Claude Code (lokal, Windows — PowerShell)
+
+```powershell
+$dest = "$env:USERPROFILE\.claude\skills"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item -Recurse -Force `
+  "recherche-ris-rechtsprechung\skill-draft\ris-rechtsprechung" `
+  $dest
+```
+
+### Claude.ai Custom Skills (Web-App)
+
+1. Skill-Ordner als ZIP packen:
+   ```bash
+   cd recherche-ris-rechtsprechung/skill-draft/
+   zip -r ris-rechtsprechung.zip ris-rechtsprechung/
+   ```
+   PowerShell:
+   ```powershell
+   Compress-Archive -Path "recherche-ris-rechtsprechung\skill-draft\ris-rechtsprechung" `
+                    -DestinationPath ris-rechtsprechung.zip -Force
+   ```
+2. Claude.ai → *Settings → Capabilities → Skills* → **Upload skill** →
+   ZIP-Datei auswählen.
+3. **Wichtig:** Im selben Settings-Bereich unter
+   *Web search & code execution → Network access* die Domain
+   `data.bka.gv.at` freigeben. Ohne das blockt die Sandbox die API-Calls.
+
+### Endstruktur (überall identisch)
 
 ```
-~/.claude/skills/ris-rechtsprechung/
+ris-rechtsprechung/
 ├── SKILL.md
 └── scripts/ris_search.py
 ```
 
-Voraussetzung: `python3` ≥ 3.9 im PATH. Keine Pip-Pakete nötig.
+Voraussetzung: Python ≥ 3.9 in der ausführenden Umgebung. Keine
+Pip-Pakete nötig.
 
 ## Quellen
 

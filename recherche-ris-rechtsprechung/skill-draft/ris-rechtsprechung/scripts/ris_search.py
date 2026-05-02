@@ -10,7 +10,7 @@ Nur Standardbibliothek, keine Pip-Installation noetig.
 Beispiele:
   ris_search.py --applikation Justiz --suchworte "Mietzinsminderung"
   ris_search.py --applikation Vfgh   --geschaeftszahl "G 12/2020"
-  ris_search.py --applikation Vwgh   --norm "1319a ABGB" \\
+  ris_search.py --applikation Vwgh   --norm "ABGB §1319a" \\
                 --von 2020-01-01 --bis 2024-12-31 --pro-seite 50
   ris_search.py --applikation Justiz --suchworte "Datenschutz" --json
 """
@@ -41,6 +41,10 @@ IM_RIS_SEIT_VALUES = [
     "DreiMonaten", "SechsMonaten", "EinemJahr",
 ]
 
+# Prefix-Konvention: J{Court}{T|R} — J=Judikatur,
+# Court ∈ {J=Justiz, W=Vwgh, F=Vfgh}, T=Text, R=Rechtssatz.
+# Reihenfolge muss "längster Prefix zuerst" einhalten — wir
+# erzwingen das beim Modul-Load (siehe unten).
 DOCNUMBER_PREFIX_TO_PATH = [
     ("BVWG",   "Bvwg"),
     ("LVWG",   "Lvwg"),
@@ -50,11 +54,12 @@ DOCNUMBER_PREFIX_TO_PATH = [
     ("DSB",    "Dsk"),
     ("JJT",    "Justiz"),
     ("JJR",    "Justiz"),
-    ("JWT",    "Justiz"),
+    ("JWT",    "Vwgh"),
     ("JWR",    "Vwgh"),
-    ("JFR",    "Vfgh"),
     ("JFT",    "Vfgh"),
+    ("JFR",    "Vfgh"),
 ]
+DOCNUMBER_PREFIX_TO_PATH.sort(key=lambda kv: -len(kv[0]))
 
 DOCNUMBER_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
 
@@ -73,14 +78,22 @@ def build_url(args: argparse.Namespace) -> str:
         ("Applikation", args.applikation),
         ("DokumenteProSeite", args.pro_seite),
         ("Seitennummer", str(args.seite)),
-        ("SucheNachRechtssatz", "False" if args.no_rechtssatz else "True"),
-        ("SucheNachText", "False" if args.no_text else "True"),
     ]
+    # SucheNachRechtssatz / SucheNachText sind nur bei Volltext-Suche
+    # (Suchworte) sinnvoll. Bei Geschaeftszahl/Norm/Rechtssatznummer-
+    # Abfragen würden sie Treffer unnötig filtern, also nur senden, wenn
+    # explizit gesetzt.
+    if args.suchworte:
+        params.append(
+            ("SucheNachRechtssatz", "False" if args.no_rechtssatz else "True"),
+        )
+        params.append(("SucheNachText", "False" if args.no_text else "True"))
     optional = [
         (args.suchworte, "Suchworte"),
         (args.geschaeftszahl, "Geschaeftszahl"),
         (args.norm, "Norm"),
         (args.rechtssatznummer, "Rechtssatznummer"),
+        (args.schlagworte, "Schlagworte"),
         (args.von, "EntscheidungsdatumVon"),
         (args.bis, "EntscheidungsdatumBis"),
         (args.im_ris_seit, "ImRisSeit"),
@@ -103,6 +116,28 @@ def http_get_json(url: str, timeout: float) -> dict[str, Any]:
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+_RETRYABLE = (
+    urllib.error.URLError,
+    urllib.error.HTTPError,
+    TimeoutError,
+    json.JSONDecodeError,
+)
+
+
+def fetch_with_retries(url: str, args: argparse.Namespace) -> dict[str, Any] | None:
+    """Hole JSON von der RIS-API mit linearem Backoff. None = Aufgabe."""
+    for attempt in range(1 + args.retries):
+        try:
+            return http_get_json(url, timeout=args.timeout)
+        except _RETRYABLE as e:
+            if attempt < args.retries:
+                time.sleep(args.retry_sleep * (attempt + 1))
+                continue
+            sys.stderr.write(f"RIS-Anfrage fehlgeschlagen: {e}\nURL: {url}\n")
+            return None
+    return None
 
 
 def as_list(value: Any) -> list[Any]:
@@ -168,13 +203,16 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         docnr = tech.get("ID")
         gz = first_text(jud.get("Geschaeftszahl"))
         gz_alle = all_texts(jud.get("Geschaeftszahl"))
-        ent_datum = jud.get("Entscheidungsdatum")
+        ent_datum = first_text(jud.get("Entscheidungsdatum"))
 
+        # Leitsatz steht je nach Applikation unter unterschiedlichen
+        # Schlüsseln. Statt einer festen Liste alle bekannten Werte
+        # durchprobieren — falls die API neue ergänzt, schadet es nicht.
         leitsatz = None
-        for app_key in ("Justiz", "Vfgh", "Vwgh", "Bvwg", "Lvwg"):
+        for app_key in APPLIKATIONEN:
             block = jud.get(app_key) or {}
             if isinstance(block, dict) and block.get("Leitsatz"):
-                leitsatz = block["Leitsatz"]
+                leitsatz = first_text(block["Leitsatz"]) or block["Leitsatz"]
                 break
 
         urls: dict[str, str] = {}
@@ -239,8 +277,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--applikation", required=True, choices=APPLIKATIONEN)
     p.add_argument("--suchworte")
     p.add_argument("--geschaeftszahl")
-    p.add_argument("--norm", help='z.B. "1319a ABGB"')
+    p.add_argument("--norm",
+                   help='Format "{Gesetzeskuerzel} §{Paragraph}", z.B. "ABGB §1319a"')
     p.add_argument("--rechtssatznummer")
+    p.add_argument("--schlagworte",
+                   help="kontrolliertes Schlagwort (RIS-Vokabular)")
     p.add_argument("--von", metavar="YYYY-MM-DD",
                    help="EntscheidungsdatumVon")
     p.add_argument("--bis", metavar="YYYY-MM-DD",
@@ -269,31 +310,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
     if not any([args.suchworte, args.geschaeftszahl, args.norm,
-                args.rechtssatznummer]):
+                args.rechtssatznummer, args.schlagworte]):
         sys.stderr.write(
-            "Fehler: mindestens --suchworte, --geschaeftszahl, --norm oder "
-            "--rechtssatznummer angeben.\n"
+            "Fehler: mindestens --suchworte, --geschaeftszahl, --norm, "
+            "--rechtssatznummer oder --schlagworte angeben.\n"
         )
         return 2
 
     url = build_url(args)
-    last_err: Exception | None = None
-    for attempt in range(1 + args.retries):
-        try:
-            raw = http_get_json(url, timeout=args.timeout)
-            break
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            last_err = e
-            if attempt < args.retries:
-                time.sleep(args.retry_sleep * (attempt + 1))
-            else:
-                sys.stderr.write(f"RIS-Anfrage fehlgeschlagen: {e}\nURL: {url}\n")
-                return 1
-        except json.JSONDecodeError as e:
-            sys.stderr.write(f"Antwort war kein JSON: {e}\nURL: {url}\n")
-            return 1
-    else:
-        sys.stderr.write(f"Unerreichbar: {last_err}\n")
+    raw = fetch_with_retries(url, args)
+    if raw is None:
         return 1
 
     if args.raw:
