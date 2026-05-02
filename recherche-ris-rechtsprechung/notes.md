@@ -180,10 +180,8 @@ Validierung: Dokumentennummern matchen `^[A-Z][A-Z0-9_]+$`, Länge 5–50.
 4. Optionaler zweiter Schritt: ein Helper-Script (`scripts/ris.sh` o. ä.) oder
    eine kleine Python/Node-Datei, die der Skill aufruft.
 
-## Offene Punkte (vom User zu klären)
-- **Skill-Form**: pures Markdown-Skill (für Claude-Code) oder zusätzlich
-  ein ausführbarer Helper (Python `httpx` / Node `fetch` / Shell)?
-- **Scope**: nur Rechtsprechung (Judikatur) oder auch Bundesrecht/Landesrecht?
-- **Output**: Markdown-Zusammenfassung mit Links, oder JSON-Rohdaten an Claude?
-- **Document-Fetch**: nur Suchmetadaten oder auch HTML-Volltext laden und
-  für Claude aufbereiten (z. B. Markdown via pandoc)?
+## Designentscheidungen (vom User getroffen)
+- **Output**: Metadaten + Link (kein Volltext-Download).
+- **Helper-Sprache**: Python 3 (Standardlib, keine Pip-Abhängigkeiten).
+- **Skill-Speicherort**: global, `~/.claude/skills/ris-rechtsprechung/`.
+- **Scope**: nur Judikatur. Bundes-/Landesrecht ggf. später als eigene Skills.

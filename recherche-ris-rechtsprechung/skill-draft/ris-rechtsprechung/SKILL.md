@@ -1,6 +1,6 @@
 ---
 name: ris-rechtsprechung
-description: Österreichische Rechtsprechung über die offene RIS-API (data.bka.gv.at v2.6) abfragen — OGH, OLG, LG, BG, VfGH, VwGH, BVwG, LVwG, DSB, GBK u. a. Gibt strukturierte Treffer mit Geschäftszahl, Entscheidungsdatum, Leitsatz und Direkt-Link zurück. TRIGGER bei Fragen wie "Gibt es OGH-Judikatur zu §1319a ABGB?", "Verfassungsgerichtshof Entscheidung G 12/2020", "Aktuelle Asylentscheidungen des BVwG zu Afghanistan", "Mietzinsminderung OGH 2023".
+description: Österreichische Rechtsprechung über die offene RIS-API (data.bka.gv.at v2.6) abfragen — OGH, OLG, LG, BG, VfGH, VwGH, BVwG, LVwG, DSB, GBK u. a. Liefert pro Treffer Metadaten (Geschäftszahl, Entscheidungsdatum, Leitsatz) und einen Direkt-Link in das RIS. TRIGGER bei Fragen wie "Gibt es OGH-Judikatur zu §1319a ABGB?", "Verfassungsgerichtshof Erkenntnis G 12/2020", "Aktuelle BVwG-Asylentscheidungen zu Afghanistan", "Mietzinsminderung OGH 2023".
 ---
 
 # Skill: RIS Rechtsprechung (Österreich)
@@ -9,6 +9,10 @@ Du recherchierst österreichische Gerichtsentscheidungen über die offene
 **RIS-API v2.6** (Rechtsinformationssystem des Bundes, betrieben vom
 Bundeskanzleramt). Die API ist authentifizierungsfrei und liefert JSON.
 
+**Scope dieses Skills:** nur **Rechtsprechung (Judikatur)**, nur **Metadaten +
+Link**. Es wird **kein** Volltext heruntergeladen oder konvertiert. Bundes- und
+Landesrecht sind nicht enthalten.
+
 ## Wann diesen Skill anwenden
 
 Bei jeder Anfrage, in der konkrete österreichische Judikatur gesucht wird:
@@ -16,10 +20,10 @@ Bei jeder Anfrage, in der konkrete österreichische Judikatur gesucht wird:
 - nach Norm (Paragraph + Gesetz, z. B. `1319a ABGB`)
 - nach Stichworten / Schlagworten
 - nach Zeitraum (`EntscheidungsdatumVon`/`Bis`)
-- nach Rechtssatz-Nummer
+- nach Rechtssatz-Nummer (z. B. `RS0123456`)
 
 Nicht anwenden bei rein dogmatischen oder rechtspolitischen Fragen ohne
-Bezug zu konkreten Entscheidungen.
+Bezug zu konkreten Entscheidungen, oder wenn Bundes-/Landesrecht gemeint ist.
 
 ## API-Grundlagen
 
@@ -27,9 +31,9 @@ Bezug zu konkreten Entscheidungen.
 - Endpoint Rechtsprechung: `GET /Judikatur`
 - Response-Format: JSON (`Accept: application/json`)
 - Keine Auth, keine Quotas, aber:
-  - **Bei Pagination 1–2 s Pause zwischen Seiten einlegen**
-  - Massenabfragen außerhalb 06–18 Uhr (MEZ) oder am Wochenende
-  - Bei Fehlern Geduld haben (das System ist gemeinsam mit dem Web-Frontend)
+  - **Bei Pagination 1–2 s Pause zwischen Seiten einlegen.**
+  - Massenabfragen außerhalb 06–18 Uhr (MEZ) oder am Wochenende.
+  - Bei Fehlern Geduld haben — das System teilt sich Ressourcen mit dem Web-Frontend.
 
 ## Pflichtparameter
 
@@ -49,8 +53,7 @@ Bezug zu konkreten Entscheidungen.
 | `Gbk` | Gleichbehandlungskommission |
 | `Dok` | Disziplinarkommission |
 
-Plus **mindestens einer** dieser Suchparameter (sonst wirft die API einen
-Validierungsfehler):
+Plus **mindestens einer** dieser Suchparameter (sonst HTTP 400):
 
 | Parameter | Beispiel | Hinweis |
 |---|---|---|
@@ -62,117 +65,115 @@ Validierungsfehler):
 
 Optional:
 - `SucheNachRechtssatz=True`, `SucheNachText=True` (bei `Suchworte` empfohlen)
-- `ImRisSeit` ∈ {`Undefined`, `EinerWoche`, `EinemMonat`, `DreiMonaten`,
-  `SechsMonaten`, `EinemJahr`}
-- `Schlagworte`, `IndexAb`, `IndexBis`
+- `ImRisSeit` ∈ {`Undefined`, `EinerWoche`, `EinemMonat`, `DreiMonaten`, `SechsMonaten`, `EinemJahr`}
 - `Sortierung`, `SortDirection` ∈ {`Ascending`, `Descending`}
 
 Pagination:
 - `DokumenteProSeite` ∈ {`Ten`, `Twenty`, `Fifty`, `OneHundred`} — Default `Twenty`
 - `Seitennummer` (1-basiert)
 
-## Vorgehen
+## Empfohlenes Vorgehen
 
-1. **Mapping**: User-Frage → `Applikation` + Suchparameter. Bei Unsicherheit
-   `Applikation=Justiz` und Volltext.
-2. **Anfrage**: GET-Request an `/Judikatur`. URL-Parameter encoden.
-3. **Antwort lesen**: Pfad `OgdSearchResult.OgdDocumentResults`:
-   - `Hits.#text` = Treffer gesamt; `@pageNumber`, `@pageSize` = aktuelle Seite
-   - `OgdDocumentReference` = Trefferliste (kann Single-Object oder Array sein —
-     immer normalisieren!)
-4. **Pro Treffer extrahieren**:
-   - `Data.Metadaten.Technisch.ID` (Dokumentennummer)
-   - `Data.Metadaten.Judikatur.Geschaeftszahl.item` (kann String oder Array sein)
-   - `Data.Metadaten.Judikatur.Entscheidungsdatum`
-   - `Data.Metadaten.Judikatur.{Justiz|Vfgh|Vwgh|Bvwg}.Leitsatz` (sofern vorhanden)
-   - `Data.Metadaten.Allgemein.DokumentUrl` (direkter Web-Link)
-   - `Data.Dokumentliste.ContentReference.Urls.ContentUrl[]` mit `DataType`
-     ∈ {`Html`, `Pdf`, `Xml`, `Rtf`}
-5. **Antwort formatieren** (siehe unten).
-6. **Pagination**: bei mehr als einer Seite vor jeder weiteren Anfrage
+**Verwende immer das beigelegte Skript `scripts/ris_search.py`** (Python 3,
+nur Standardbibliothek). Es kapselt URL-Bau, Pflichtparameter-Validierung,
+JSON-Parsing und Rendering in einem Aufruf.
+
+1. **Mapping**: User-Frage → `--applikation` + Suchparameter. Bei Unsicherheit
+   `--applikation Justiz` + Volltext-Suche.
+2. **Aufruf**:
+   ```bash
+   python3 scripts/ris_search.py \
+     --applikation Justiz \
+     --suchworte "Mietzinsminderung" \
+     --von 2020-01-01 --bis 2024-12-31 \
+     --pro-seite 20 --seite 1
+   ```
+   Ausgabe ist Markdown (Default) oder strukturiertes JSON (`--json`).
+3. **Antwort an den User**: die Top-Treffer mit Geschäftszahl, Datum,
+   Leitsatz (sofern vorhanden) und RIS-Link weitergeben. Bei mehr als 10
+   Treffern die ersten 10 ausführlich, den Rest als Bullet-Liste.
+4. **Pagination**: bei mehr als einer Seite vor jeder weiteren Anfrage
    `sleep 1.5`.
 
-## Antwort-Format
+## Skript-Output
 
-Pro Anfrage zuerst eine Trefferzusammenfassung:
-
+Default (Markdown):
 ```
-Treffer: 412 (Seite 1 von 21, 20 pro Seite)
-Anfrage: Applikation=Justiz, Suchworte=Mietzinsminderung
-```
+**Treffer:** 412 (Seite 1, 20 pro Seite)
 
-Dann pro Entscheidung:
-
-```
-1. OGH 5Ob234/20b — 15.04.2021
-   Leitsatz: …
-   https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_0050OB00234_20B0000_000/...
+### 1. Justiz 5Ob234/20b — 2021-04-15
+_Leitsatz:_ ...
+<https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html>
 ```
 
-Bei vielen Treffern: maximal Top 10 voll ausführlich, Rest verdichtet als
-Bullet-Liste mit Geschäftszahl, Datum und Link.
+`--json` liefert ein normalisiertes Objekt:
+```jsonc
+{
+  "total_hits": 412, "page": 1, "page_size": 20,
+  "documents": [
+    {
+      "dokumentnummer": "JJT_20210415_OGH0002_...",
+      "applikation": "Justiz",
+      "geschaeftszahl": "5Ob234/20b",
+      "geschaeftszahlen": ["5Ob234/20b"],
+      "entscheidungsdatum": "2021-04-15",
+      "leitsatz": "...",
+      "link": "https://ris.bka.gv.at/Dokumente/Justiz/.../...html",
+      "content_urls": { "html": "...", "pdf": "...", "xml": "..." }
+    }
+  ]
+}
+```
+
+`--raw` gibt die unveränderte API-Antwort aus, falls du selbst parsen willst.
 
 ## Direkte HTML-Volltext-URLs
 
-Aus der Dokumentennummer ableitbar (Präfix bestimmt Pfad):
+Aus der Dokumentennummer ableitbar (Präfix → Pfad):
 
 | Präfix | Pfad |
 |---|---|
-| `JJT`, `JJR` | `https://ris.bka.gv.at/Dokumente/Justiz/{nr}/{nr}.html` |
+| `JJT`, `JJR`, `JWT` | `https://ris.bka.gv.at/Dokumente/Justiz/{nr}/{nr}.html` |
 | `JFR`, `JFT` | `https://ris.bka.gv.at/Dokumente/Vfgh/{nr}/{nr}.html` |
 | `JWR` | `https://ris.bka.gv.at/Dokumente/Vwgh/{nr}/{nr}.html` |
 | `BVWG` | `https://ris.bka.gv.at/Dokumente/Bvwg/{nr}/{nr}.html` |
 | `LVWG` | `https://ris.bka.gv.at/Dokumente/Lvwg/{nr}/{nr}.html` |
 | `DSB`  | `https://ris.bka.gv.at/Dokumente/Dsk/{nr}/{nr}.html` |
+| `GBK`  | `https://ris.bka.gv.at/Dokumente/Gbk/{nr}/{nr}.html` |
+| `PVAK` | `https://ris.bka.gv.at/Dokumente/Pvak/{nr}/{nr}.html` |
 
-Wenn der User den Volltext einer konkreten Entscheidung will: HTML
-herunterladen (z. B. via `WebFetch` oder `curl -fsSL`) und auf die
-relevanten Abschnitte (Spruch, Begründung, Leitsatz) reduzieren.
+Validierung: Dokumentennummern matchen `^[A-Z][A-Z0-9_]+$`, Länge 5–50.
+Das Skript leitet diesen Link automatisch ab und stellt ihn unter `link`
+bzw. `content_urls.html` bereit.
 
-## Helfer-Skript
-
-Für strukturierte Aufrufe steht das Skript `scripts/ris-search.sh` bereit
-(siehe Skill-Verzeichnis). Beispiel:
-
-```bash
-scripts/ris-search.sh \
-  --applikation Justiz \
-  --suchworte "Mietzinsminderung" \
-  --von 2020-01-01 --bis 2024-12-31 \
-  --pro-seite 20 --seite 1
-```
+**Volltext-Download ist explizit nicht Teil dieses Skills.** Wenn der
+User den Volltext einer Entscheidung will, gib ihm den Link aus dem
+Trefferdatensatz und überlasse ihm das Lesen.
 
 ## Fehlerfälle
 
-- **HTTP 400** → mindestens einen Suchparameter ergänzen.
-- **Empty `OgdDocumentReference`** → 0 Treffer; Suche entschärfen
-  (allgemeinere Suchworte, größerer Zeitraum, andere `Applikation`).
-- **`OgdDocumentReference` als Single-Object** → wie ein 1-elementiges Array
-  behandeln.
-- **Timeout** → einmal mit kleinerem `DokumenteProSeite` wiederholen.
+- **HTTP 400** → mindestens einen Suchparameter ergänzen oder spezifischer machen.
+- **0 Treffer** → Suche entschärfen (allgemeinere Suchworte, größerer Zeitraum, andere `Applikation`).
+- **Timeout** → einmal mit kleinerem `--pro-seite` wiederholen (das Skript
+  retried automatisch zwei Mal mit 2/4 s Pause).
+- **API-Pflichtparameter unbekannt** → Default-Pfad: `--applikation Justiz`,
+  `--suchworte ...` setzen.
 
-## Beispiel-Workflow
+## Installation
 
-User: *"Gibt es VfGH-Erkenntnisse zur Vorratsdatenspeicherung?"*
+Dieser Skill ist als **globaler** Skill konzipiert:
 
-```bash
-curl -fsSL -G "https://data.bka.gv.at/ris/api/v2.6/Judikatur" \
-  -H 'Accept: application/json' \
-  --data-urlencode "Applikation=Vfgh" \
-  --data-urlencode "Suchworte=Vorratsdatenspeicherung" \
-  --data-urlencode "SucheNachRechtssatz=True" \
-  --data-urlencode "SucheNachText=True" \
-  --data-urlencode "DokumenteProSeite=Ten" \
-  --data-urlencode "Seitennummer=1"
+```
+~/.claude/skills/ris-rechtsprechung/
+├── SKILL.md
+└── scripts/ris_search.py
 ```
 
-Antwort parsen, Top-Treffer als Liste mit Geschäftszahl, Datum, Leitsatz und
-Link an den User zurückgeben.
+Voraussetzung: `python3` ≥ 3.9 im PATH. Keine Pip-Pakete nötig.
 
 ## Quellen
 
-- Offizielle Doku-PDF (Verweis im shrinkwrap-Adapter):
-  `https://data.bka.gv.at/ris/ogd/v2.6/Documents/Dokumentation_OGD-RIS_API.pdf`
+- Offizielle Doku-PDF: `https://data.bka.gv.at/ris/ogd/v2.6/Documents/Dokumentation_OGD-RIS_API.pdf`
 - OGD-FAQ: `https://www.ris.bka.gv.at/RisInfo/OGD-FAQ.pdf`
 - Datensatz-Eintrag: `https://www.data.gv.at/katalog/dataset/ris2_6`
 - Referenz-Implementierungen:

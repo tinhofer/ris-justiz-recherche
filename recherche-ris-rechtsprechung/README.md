@@ -128,7 +128,7 @@ einsatzfertiger Skill für Claude-Code:
 skill-draft/ris-rechtsprechung/
 ├── SKILL.md                  # Metadaten + Anleitung für Claude
 └── scripts/
-    └── ris-search.sh         # CLI-Wrapper um curl gegen /Judikatur
+    └── ris_search.py         # Python-Wrapper für /Judikatur (Standardlib)
 ```
 
 `SKILL.md` enthält:
@@ -139,33 +139,20 @@ skill-draft/ris-rechtsprechung/
 - Mapping-Tabelle der Dokumentennummer-Präfixe auf HTML-URLs.
 - Fehlerfall-Handling und Pagination-/Rate-Limit-Richtlinien.
 
-`scripts/ris-search.sh` ist ein eigenständiger Bash-Wrapper um `curl`,
-der alle wesentlichen Suchparameter exponiert, Pflicht-Validierung
-durchführt und Roh-JSON ausgibt.
+`scripts/ris_search.py` ist ein eigenständiges Python-3-Skript ohne
+Pip-Abhängigkeiten. Es validiert Pflichtparameter, baut die Anfrage,
+parst die Antwort und liefert wahlweise Markdown, normalisiertes JSON
+(`--json`) oder die Roh-API-Antwort (`--raw`). Bei Netzfehlern werden
+zwei automatische Retries mit Backoff durchgeführt.
 
-## Empfehlung für die Implementierung
+## Festgelegte Designentscheidungen
 
-**Form**: Markdown-Skill (Claude-Code-Format) **plus** Helper-Bash-Script.
-
-**Begründung**: Die API ist key-frei und über `curl` trivial erreichbar.
-Ein eigenständiges Programm (Java/Node) ist Overkill, das Bash-Wrapper-
-Pattern hält den Skill werkzeug-agnostisch. Wer mehr Komfort will, kann
-später einen MCP-Server (analog zu `philrox/ris-mcp-ts`) anschließen.
-
-**Scope-Empfehlung**: Erst `Judikatur` solide lösen. Bundesrecht /
-Landesrecht analog danach in eigene Skills splitten — die haben andere
-Pflichtparameter (z. B. `FassungVom`) und würden den Judikatur-Skill
-unübersichtlich machen.
-
-## Offene Punkte (User-Entscheidung nötig)
-
-1. Soll der Skill den **Volltext** einer Entscheidung mitladen
-   (HTML → Markdown), oder nur Metadaten + Link liefern?
-2. Bevorzugte **Sprachausgabe**: deutsch (passend zu RIS) oder gemischt?
-3. **Skill-Speicherort**: Repo-lokal `.claude/skills/ris-rechtsprechung/`
-   oder global unter `~/.claude/skills/`?
-4. Soll der Helper als **Python**-Script statt Bash umgesetzt werden
-   (besseres JSON-Parsing, plattformunabhängiger)?
+| Frage | Entscheidung |
+|---|---|
+| Output | nur **Metadaten + Link** (kein Volltext-Download) |
+| Helper-Sprache | **Python 3** (Standardlib, keine Dependencies) |
+| Skill-Speicherort | **global**: `~/.claude/skills/ris-rechtsprechung/` |
+| Scope | **nur Judikatur** (Bundes-/Landesrecht ggf. später als eigene Skills) |
 
 ## Referenzen
 
