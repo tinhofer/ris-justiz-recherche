@@ -111,8 +111,12 @@ class TestRisLiveApi(unittest.TestCase):
         self.assertEqual(result["total_hits"], 0)
         self.assertEqual(result["documents"], [])
 
-    def test_vwgh_result_has_vwgh_path(self):
+    def test_vwgh_result_has_vwgh_link(self):
         # Live regression guard for the JWT-prefix → Vwgh fix.
+        # Die API liefert den Link je nach Treffer entweder als
+        # /Dokumente/Vwgh/{nr}/{nr}.html oder als
+        # Dokument.wxe?Abfrage=Vwgh&Dokumentennummer={nr} — beides ist
+        # eine valide RIS-URL für Vwgh; wir akzeptieren beide.
         result = _fetch(applikation="Vwgh", suchworte="Bescheid",
                         pro_seite="Ten")
         self.assertGreater(result["total_hits"], 0)
@@ -120,8 +124,19 @@ class TestRisLiveApi(unittest.TestCase):
             docnr = doc["dokumentnummer"] or ""
             link = doc["link"] or ""
             if re.match(r"^JW[TR]", docnr):
-                self.assertIn("/Vwgh/", link,
-                              f"JW* docnr {docnr!r} should map to /Vwgh/, got {link!r}")
+                self.assertRegex(
+                    link, r"(?:/Vwgh/|Abfrage=Vwgh)",
+                    f"JW* docnr {docnr!r} should yield a Vwgh-marked link; got {link!r}",
+                )
+                # Unabhängig prüfen: die abgeleitete URL aus dem
+                # Prefix-Mapping muss /Vwgh/ enthalten — das ist die
+                # eigentliche Regression-Garantie für den JWT-Bug.
+                derived = ris_search.docnumber_to_html_url(docnr)
+                self.assertIsNotNone(derived)
+                self.assertIn(
+                    "/Vwgh/", derived,
+                    f"docnumber_to_html_url({docnr!r}) must map to /Vwgh/",
+                )
                 return
         self.skipTest("No JW-prefixed result on first page; cannot assert mapping.")
 
