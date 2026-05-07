@@ -1,91 +1,81 @@
-# Claude-Code
+# ris-justiz-recherche
 
-A project scaffolded with best practices for modern development.
+Recherche zur österreichischen **RIS-API** (Rechtsinformationssystem des
+Bundes, `data.bka.gv.at`) und ein einsatzfertiger **Claude-Code-Skill**, der
+Rechtsprechung über die offene API v2.6 abfragt.
 
-## Getting Started
+## Inhalt
 
-### Prerequisites
+```
+ris-justiz-recherche/
+├── recherche-ris-rechtsprechung/        # Recherche-Bericht und Skill-Paket
+│   ├── README.md                        # Bericht: API-Fakten und Designentscheidungen
+│   ├── notes.md                         # Recherche-Notizen
+│   ├── referenz-auszuege.md             # Auszüge aus Vergleichs-Implementierungen
+│   └── skill-draft/
+│       └── ris-rechtsprechung/          # → das fertige Skill-Paket
+│           ├── SKILL.md                 #   Anleitung für Claude
+│           └── scripts/ris_search.py    #   Python-Wrapper für /Judikatur
+├── Agent.md                             # Anweisungen für den Recherche-Agent
+└── scripts/apply-best-practices.sh      # Repo-Scaffold (aus dem Initial-Setup)
+```
 
-- Git
-- Your preferred programming language runtime
+## Skill `ris-rechtsprechung`
 
-### Installation
+**Zweck:** Österreichische Gerichtsentscheidungen (OGH, OLG, LG, BG, VfGH,
+VwGH, BVwG, LVwG, DSB u. a.) über die authentifizierungsfreie RIS-OGD-API
+finden. Liefert pro Treffer Geschäftszahl, Entscheidungsdatum, Leitsatz und
+einen Direkt-Link in das RIS.
+
+**Scope (festgelegt):** nur Judikatur, nur Metadaten + Link — kein
+Volltext-Download.
+
+**Stack:** Python 3.9+, ausschließlich Standardbibliothek.
+
+### Installation (Claude Code, Linux/macOS)
 
 ```bash
-git clone <repository-url>
-cd Claude-Code
+mkdir -p ~/.claude/skills
+cp -r recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung \
+      ~/.claude/skills/
 ```
 
-## Project Structure
+Für Windows und Claude.ai-Custom-Skill-Upload siehe Abschnitt
+*Installation* in
+[`recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung/SKILL.md`](recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung/SKILL.md).
 
-```
-Claude-Code/
-├── .github/              # GitHub templates and workflows
-│   ├── ISSUE_TEMPLATE/   # Issue templates
-│   ├── workflows/        # CI/CD workflows
-│   └── PULL_REQUEST_TEMPLATE.md
-├── scripts/              # Utility scripts
-│   └── apply-best-practices.sh  # Apply scaffold to existing projects
-├── src/                  # Source code (create as needed)
-├── tests/                # Test files (create as needed)
-├── docs/                 # Documentation (create as needed)
-├── .editorconfig         # Editor configuration
-├── .gitignore            # Git ignore rules
-├── CHANGELOG.md          # Version history
-├── CONTRIBUTING.md       # Contribution guidelines
-├── LICENSE               # MIT License
-└── README.md             # This file
-```
-
-## Usage
-
-### For New Projects
-
-Fork or clone this repository and customize it for your needs:
+### Direkt-Aufruf des Skripts (ohne Claude)
 
 ```bash
-git clone https://github.com/tinhofer/Claude-Code.git my-new-project
-cd my-new-project
-rm -rf .git && git init
-git add . && git commit -m "Add: initial project scaffold"
+cd recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung
+python scripts/ris_search.py \
+  --applikation Justiz \
+  --suchworte "Mietzinsminderung" \
+  --von 2020-01-01 --bis 2024-12-31 \
+  --pro-seite Twenty --seite 1
 ```
 
-### For Existing Projects
+`--json` liefert ein normalisiertes Objekt; `--raw` gibt die unveränderte
+API-Antwort aus.
 
-Use the included script to apply best practices to an existing project:
+## Recherche-Bericht
 
-```bash
-# Preview what will be copied (dry run)
-./scripts/apply-best-practices.sh --dry-run /path/to/your-project
+Der Bericht in
+[`recherche-ris-rechtsprechung/README.md`](recherche-ris-rechtsprechung/README.md)
+fasst zusammen:
 
-# Apply the best practices
-./scripts/apply-best-practices.sh /path/to/your-project
-```
+- Endpoints und Parameter der RIS-OGD-API v2.6 (`/Judikatur` im Detail)
+- erlaubte `Applikation`-Werte und deren Trefferräume
+- JSON-Response-Struktur
+- Mapping der Dokumentennummer-Präfixe auf direkte HTML-URLs
+- Referenz-Implementierungen (`shrinkwrap-legal/shrinkwrap-legal-api`,
+  `philrox/ris-mcp-ts`)
 
-The script copies:
-- `.editorconfig` - Code style configuration
-- `.gitignore` - Comprehensive ignore patterns (as template if one exists)
-- `.github/ISSUE_TEMPLATE/` - Bug report and feature request templates
-- `.github/PULL_REQUEST_TEMPLATE.md` - PR checklist
-- `.github/CODEOWNERS` - Code ownership configuration
-- `.github/workflows/ci.yml` - CI/CD pipeline skeleton
-- `CONTRIBUTING.md` - Contribution guidelines
-- `CHANGELOG.md` - Version history template
+## Mitwirken
 
-After running the script, customize the files for your project's specific needs.
+Siehe [CONTRIBUTING.md](CONTRIBUTING.md). Änderungen werden in
+[CHANGELOG.md](CHANGELOG.md) festgehalten.
 
-## Contributing
+## Lizenz
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Thanks to all contributors
+MIT — siehe [LICENSE](LICENSE).
