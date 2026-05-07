@@ -1,0 +1,129 @@
+name: RIS query
+
+# Manuell auslösbarer Workflow, der eine Live-Abfrage gegen die
+# RIS-OGD-API v2.6 (Endpoint /Judikatur) ausführt und das Ergebnis
+# in der Job-Summary rendert. Gedacht für ad-hoc Recherchen vom Handy
+# über Actions → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      applikation:
+        description: 'Gericht / Behörde'
+        required: true
+        default: Justiz
+        type: choice
+        options:
+          - Justiz
+          - Vfgh
+          - Vwgh
+          - Bvwg
+          - Lvwg
+          - Dsk
+          - AsylGH
+          - Normenliste
+          - Pvak
+          - Gbk
+          - Dok
+      suchworte:
+        description: 'Volltext-Suchworte (AND/OR/NOT, * am Wortende)'
+        required: false
+        type: string
+      geschaeftszahl:
+        description: 'Geschäftszahl, z. B. 5Ob234/20b'
+        required: false
+        type: string
+      norm:
+        description: 'Norm, kanonisch "{Kürzel} §{Paragraph}" — z. B. ABGB §1319a'
+        required: false
+        type: string
+      rechtssatznummer:
+        description: 'Rechtssatznummer, z. B. RS0123456'
+        required: false
+        type: string
+      schlagworte:
+        description: 'Schlagwort (kontrolliertes RIS-Vokabular)'
+        required: false
+        type: string
+      von:
+        description: 'EntscheidungsdatumVon (YYYY-MM-DD)'
+        required: false
+        type: string
+      bis:
+        description: 'EntscheidungsdatumBis (YYYY-MM-DD)'
+        required: false
+        type: string
+      pro_seite:
+        description: 'Treffer pro Seite'
+        required: true
+        default: Ten
+        type: choice
+        options:
+          - Ten
+          - Twenty
+          - Fifty
+          - OneHundred
+      seite:
+        description: 'Seitennummer (1-basiert)'
+        required: true
+        default: '1'
+        type: string
+
+concurrency:
+  group: ris-query-${{ github.actor }}
+  cancel-in-progress: false
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    defaults:
+      run:
+        working-directory: recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: RIS-Anfrage
+        env:
+          APPLIKATION: ${{ inputs.applikation }}
+          SUCHWORTE: ${{ inputs.suchworte }}
+          GESCHAEFTSZAHL: ${{ inputs.geschaeftszahl }}
+          NORM: ${{ inputs.norm }}
+          RECHTSSATZNUMMER: ${{ inputs.rechtssatznummer }}
+          SCHLAGWORTE: ${{ inputs.schlagworte }}
+          VON: ${{ inputs.von }}
+          BIS: ${{ inputs.bis }}
+          PRO_SEITE: ${{ inputs.pro_seite }}
+          SEITE: ${{ inputs.seite }}
+        run: |
+          args=(--applikation "$APPLIKATION" --pro-seite "$PRO_SEITE" --seite "$SEITE")
+          if [ -n "$SUCHWORTE" ]; then args+=(--suchworte "$SUCHWORTE"); fi
+          if [ -n "$GESCHAEFTSZAHL" ]; then args+=(--geschaeftszahl "$GESCHAEFTSZAHL"); fi
+          if [ -n "$NORM" ]; then args+=(--norm "$NORM"); fi
+          if [ -n "$RECHTSSATZNUMMER" ]; then args+=(--rechtssatznummer "$RECHTSSATZNUMMER"); fi
+          if [ -n "$SCHLAGWORTE" ]; then args+=(--schlagworte "$SCHLAGWORTE"); fi
+          if [ -n "$VON" ]; then args+=(--von "$VON"); fi
+          if [ -n "$BIS" ]; then args+=(--bis "$BIS"); fi
+
+          {
+            echo "## RIS-Recherche"
+            echo
+            echo "**Anfrage:** \`$APPLIKATION\`"
+            [ -n "$SUCHWORTE" ]        && echo "- Suchworte: \`$SUCHWORTE\`"
+            [ -n "$GESCHAEFTSZAHL" ]   && echo "- Geschäftszahl: \`$GESCHAEFTSZAHL\`"
+            [ -n "$NORM" ]             && echo "- Norm: \`$NORM\`"
+            [ -n "$RECHTSSATZNUMMER" ] && echo "- Rechtssatznummer: \`$RECHTSSATZNUMMER\`"
+            [ -n "$SCHLAGWORTE" ]      && echo "- Schlagworte: \`$SCHLAGWORTE\`"
+            [ -n "$VON" ]              && echo "- Entscheidungsdatum von: \`$VON\`"
+            [ -n "$BIS" ]              && echo "- Entscheidungsdatum bis: \`$BIS\`"
+            echo "- Seite \`$SEITE\`, \`$PRO_SEITE\` Treffer/Seite"
+            echo
+            echo "---"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          python scripts/ris_search.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
