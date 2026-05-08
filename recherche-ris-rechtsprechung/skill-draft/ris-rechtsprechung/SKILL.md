@@ -219,6 +219,12 @@ Trefferdatensatz und überlasse ihm das Lesen.
 
 - **HTTP 400** → mindestens einen Suchparameter ergänzen oder spezifischer machen.
 - **0 Treffer** → Suche entschärfen (allgemeinere Suchworte, größerer Zeitraum, andere `Applikation`).
+- **0 Treffer bei `Suchworte` trotz nachweisbarem Vorkommen** →
+  Bekannte Limitation des OGD-Volltext-Index, insbesondere bei alten
+  Entscheidungen (vor ca. 1990). Der Volltext kann existieren und das
+  Suchwort enthalten, ohne dass der API-Index ihn findet. Das Skript
+  ergänzt in diesem Fall automatisch einen Hinweis auf die RIS-Web-Suche
+  unter `https://ris.bka.gv.at/Justiz/`.
 - **Timeout** → einmal mit kleinerem `--pro-seite` wiederholen (das Skript
   retried automatisch zwei Mal mit 2/4 s Pause).
 - **API-Pflichtparameter unbekannt** → Default-Pfad: `--applikation Justiz`,

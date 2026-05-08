@@ -378,6 +378,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+SUCHWORTE_NULL_HINT = (
+    "> **Hinweis:** Bei Volltextsuche in alten Entscheidungen "
+    "(vor ca. 1990) ist der OGD-Volltext-Index lückenhaft — der "
+    "Volltext kann existieren und das Suchwort enthalten, ohne dass "
+    "die API ihn findet. Eine Recherche direkt unter "
+    "<https://ris.bka.gv.at/Justiz/> mit denselben Suchworten kann "
+    "zusätzliche Funde liefern."
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -406,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
     norm = normalize(raw)
     if norm_original is not None:
         norm["norm_normalized"] = {"from": norm_original, "to": args.norm}
+    if args.suchworte and norm["total_hits"] == 0:
+        norm["hint"] = SUCHWORTE_NULL_HINT
 
     if args.json:
         json.dump(norm, sys.stdout, ensure_ascii=False, indent=2)
@@ -417,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"`{norm_original}` → `{args.norm}`._\n\n"
             )
         sys.stdout.write(render_markdown(norm))
+        if args.suchworte and norm["total_hits"] == 0:
+            sys.stdout.write("\n" + SUCHWORTE_NULL_HINT + "\n")
     return 0
 
 
