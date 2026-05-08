@@ -145,24 +145,36 @@ Default (Markdown). Für Volltext-Dokumente:
 ```
 **Treffer:** 412 (Seite 1, 20 pro Seite)
 
-### 1. [Volltext] Justiz 5Ob234/20b — 2021-04-15
+### 1. OGH 5Ob234/20b vom 15.04.2021 [Volltext]
 _Leitsatz:_ ...
-<https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html>
+**Norm:** ABGB §1119
+**Rechtsgebiet:** Zivilrecht
+**Fachgebiet:** Bestandrecht
+- [Zur Entscheidung im RIS](https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html)
 ```
 
 Für Rechtssatz-Dokumente: zusätzlich ein abgeleiteter Volltext-Link.
 ```
-### 2. [Rechtssatz] Justiz 9ObA110/88 — 1988-06-01
+### 2. OGH 9ObA110/88 vom 01.06.1988 [Rechtssatz]
 _Leitsatz:_ ...
-- Rechtssatz: <https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentennummer=JJR_19880601_OGH0002_009OBA00110_8800000_003>
-- Volltext (vermutet): <https://ris.bka.gv.at/Dokumente/Justiz/JJT_19880601_OGH0002_009OBA00110_8800000_000/JJT_19880601_OGH0002_009OBA00110_8800000_000.html>
+- [Rechtssatz im RIS](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentennummer=JJR_19880601_OGH0002_009OBA00110_8800000_003)
+- [Volltext im RIS (vermutet)](https://ris.bka.gv.at/Dokumente/Justiz/JJT_19880601_OGH0002_009OBA00110_8800000_000/JJT_19880601_OGH0002_009OBA00110_8800000_000.html)
 ```
 
-Die Volltext-URL wird per Heuristik aus der Rechtssatz-Dokumentennummer
-abgeleitet (`J{Court}R_…_NNN` → `J{Court}T_…_000`). Bei OGH/VfGH/VwGH
-trifft das in der überwältigenden Mehrheit der Fälle. Lieferte der
-abgeleitete Link 404, ist der Rechtssatz-Link der Fallback — über die
-Geschäftszahl findet sich das Volltext-Dokument im RIS-Web zuverlässig.
+Anmerkungen zum Output:
+- **Gericht statt Applikation:** Wenn die API für einen Treffer ein
+  konkretes Gericht (`OGH`, `OLG Wien`, `BG …`) liefert, wird das in
+  der Überschrift verwendet. Sonst Fallback auf die Applikation
+  (`Justiz`, `Vfgh`, …).
+- **Datumsformat:** ISO-Datum wird in DD.MM.YYYY umgewandelt.
+- **Norm/Rechtsgebiet/Fachgebiet:** werden nur ausgegeben, wenn die
+  API sie für den jeweiligen Treffer mitliefert.
+- **Volltext-URL bei Rechtssätzen:** per Heuristik aus der Dokumenten-
+  nummer abgeleitet (`J{Court}R_…_NNN` → `J{Court}T_…_000`). Bei OGH/
+  VfGH/VwGH trifft das in der überwältigenden Mehrheit der Fälle.
+  Lieferte der abgeleitete Link 404, ist der Rechtssatz-Link der
+  Fallback — über die Geschäftszahl findet sich das Volltext-Dokument
+  im RIS-Web zuverlässig.
 
 `--json` liefert ein normalisiertes Objekt:
 ```jsonc
@@ -172,11 +184,15 @@ Geschäftszahl findet sich das Volltext-Dokument im RIS-Web zuverlässig.
     {
       "dokumentnummer": "JJR_19880601_OGH0002_...",
       "applikation": "Justiz",
+      "gericht": "OGH",                  // oder null wenn API leer
       "doc_type": "Rechtssatz",          // "Volltext" | "Rechtssatz" | null
       "geschaeftszahl": "9ObA110/88",
       "geschaeftszahlen": ["9ObA110/88"],
       "entscheidungsdatum": "1988-06-01",
       "leitsatz": "...",
+      "normen": ["ArbVG §96"],           // Liste, kann leer sein
+      "rechtsgebiet": "Zivilrecht",      // oder null
+      "fachgebiete": ["Arbeitsrecht"],   // Liste, kann leer sein
       "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._003",
       "volltext_url": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_..._000/...html",
       "content_urls": { "html": "...", "pdf": "...", "xml": "..." }
