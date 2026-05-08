@@ -378,14 +378,47 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-SUCHWORTE_NULL_HINT = (
-    "> **Hinweis:** Bei Volltextsuche in alten Entscheidungen "
-    "(vor ca. 1990) ist der OGD-Volltext-Index lückenhaft — der "
-    "Volltext kann existieren und das Suchwort enthalten, ohne dass "
-    "die API ihn findet. Eine Recherche direkt unter "
-    "<https://www.ris.bka.gv.at/Judikatur/> mit denselben Suchworten "
-    "kann zusätzliche Funde liefern."
+SUCHWORTE_NULL_HINT_TEMPLATE = (
+    "> **Hinweis: 0 Treffer im OGD-Volltext-Index.**\n"
+    "> Bei alten Entscheidungen (vor ca. 1990) ist der Index lückenhaft — "
+    "der Volltext kann existieren und das Suchwort enthalten, ohne dass "
+    "die API ihn findet.\n"
+    ">\n"
+    "> **Empfohlener Fallback:** Google `site:`-Suche im RIS-Web-Korpus, "
+    "der Google-indexiert ist:\n"
+    "> ```\n"
+    "> {query}\n"
+    "> ```\n"
+    "> In Claude.ai-Kontext kann diese Query direkt an `web_search` "
+    "weitergegeben werden. Manuell unter "
+    "<https://www.google.com/search?q={query_url}> oder ein Stück "
+    "präziser unter <https://www.ris.bka.gv.at/Judikatur/>."
 )
+
+
+def build_websearch_query(args: argparse.Namespace) -> str:
+    """Erzeugt eine Google `site:`-Such-Query als Fallback, wenn die API
+    nichts findet. Google indexiert das RIS-Web-Frontend deutlich
+    breiter als der OGD-API-Volltext-Index — insbesondere bei alten
+    Entscheidungen.
+    """
+    parts: list[str] = ["site:ris.bka.gv.at", args.applikation]
+    if args.suchworte:
+        parts.append(args.suchworte)
+    if args.norm:
+        parts.append(args.norm)
+    if args.geschaeftszahl:
+        parts.append(f'"{args.geschaeftszahl}"')
+    if args.schlagworte:
+        parts.append(args.schlagworte)
+    if args.rechtssatznummer:
+        parts.append(args.rechtssatznummer)
+    query = " ".join(parts)
+    if args.von:
+        query += f" after:{args.von.split('-')[0]}"
+    if args.bis:
+        query += f" before:{args.bis.split('-')[0]}"
+    return query
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -416,8 +449,15 @@ def main(argv: list[str] | None = None) -> int:
     norm = normalize(raw)
     if norm_original is not None:
         norm["norm_normalized"] = {"from": norm_original, "to": args.norm}
+
+    websearch_query: str | None = None
     if args.suchworte and norm["total_hits"] == 0:
-        norm["hint"] = SUCHWORTE_NULL_HINT
+        websearch_query = build_websearch_query(args)
+        norm["websearch_query"] = websearch_query
+        norm["hint"] = SUCHWORTE_NULL_HINT_TEMPLATE.format(
+            query=websearch_query,
+            query_url=urllib.parse.quote_plus(websearch_query),
+        )
 
     if args.json:
         json.dump(norm, sys.stdout, ensure_ascii=False, indent=2)
@@ -429,8 +469,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"`{norm_original}` → `{args.norm}`._\n\n"
             )
         sys.stdout.write(render_markdown(norm))
-        if args.suchworte and norm["total_hits"] == 0:
-            sys.stdout.write("\n" + SUCHWORTE_NULL_HINT + "\n")
+        if websearch_query is not None:
+            sys.stdout.write("\n" + norm["hint"] + "\n")
     return 0
 
 

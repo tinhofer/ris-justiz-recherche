@@ -193,20 +193,51 @@ class TestRisLiveApi(unittest.TestCase):
 
 
 class TestNullHint(unittest.TestCase):
-    """Smoke-Test für den Hinweis bei 0 Suchworte-Treffern (Markdown-Rendering)."""
+    """Smoke-Test für den Hinweis bei 0 Suchworte-Treffern."""
 
-    def test_hint_rendered_in_markdown_when_suchworte_zero_hits(self):
-        argv = ["--applikation", "Justiz", "--suchworte", "irrelevant"]
-        args = ris_search.parse_args(argv)
-        # normalize-Output mit 0 Treffern simulieren
-        empty = {"total_hits": 0, "page": 1, "page_size": 10, "documents": []}
-        # Der Hinweis-Text sollte im SUCHWORTE_NULL_HINT-Konstanten stehen
-        self.assertIn("www.ris.bka.gv.at/Judikatur/",
-                      ris_search.SUCHWORTE_NULL_HINT)
-        self.assertIn("Volltext-Index", ris_search.SUCHWORTE_NULL_HINT)
-        # Sicherstellen, dass die main()-Logik die Trigger-Bedingungen
-        # (suchworte gesetzt + 0 Treffer) erkennt.
-        self.assertTrue(args.suchworte and empty["total_hits"] == 0)
+    def test_template_has_placeholders(self):
+        self.assertIn("{query}", ris_search.SUCHWORTE_NULL_HINT_TEMPLATE)
+        self.assertIn("{query_url}", ris_search.SUCHWORTE_NULL_HINT_TEMPLATE)
+        self.assertIn("Volltext-Index", ris_search.SUCHWORTE_NULL_HINT_TEMPLATE)
+        self.assertIn("site:`-Suche", ris_search.SUCHWORTE_NULL_HINT_TEMPLATE)
+
+
+class TestWebsearchQueryBuilder(unittest.TestCase):
+    def _build(self, **overrides):
+        argv = ["--applikation", overrides.pop("applikation", "Justiz")]
+        for flag, value in overrides.items():
+            argv.append(f"--{flag.replace('_', '-')}")
+            argv.append(str(value))
+        # Mindestens ein Suchparam pflicht — für Tests mitgeben falls nicht da.
+        if not any(f in overrides for f in
+                   ("suchworte", "geschaeftszahl", "norm",
+                    "rechtssatznummer", "schlagworte")):
+            argv.extend(["--suchworte", "dummy"])
+        return ris_search.build_websearch_query(ris_search.parse_args(argv))
+
+    def test_basic_suchworte(self):
+        q = self._build(suchworte="Lackierungsabteilung")
+        self.assertEqual(q, "site:ris.bka.gv.at Justiz Lackierungsabteilung")
+
+    def test_geschaeftszahl_quoted(self):
+        q = self._build(geschaeftszahl="9ObA279/88")
+        self.assertIn('"9ObA279/88"', q)
+
+    def test_combined_norm_and_suchworte(self):
+        q = self._build(suchworte="Kündigung", norm="ArbVG §105")
+        self.assertIn("Kündigung", q)
+        self.assertIn("ArbVG §105", q)
+        self.assertTrue(q.startswith("site:ris.bka.gv.at Justiz"))
+
+    def test_applikation_vfgh_appears(self):
+        q = self._build(applikation="Vfgh", suchworte="Versammlungsfreiheit")
+        self.assertIn("Vfgh", q)
+
+    def test_date_range_adds_after_before(self):
+        q = self._build(suchworte="Mietzins",
+                        von="2020-01-01", bis="2024-12-31")
+        self.assertIn("after:2020", q)
+        self.assertIn("before:2024", q)
 
     def test_vwgh_result_has_vwgh_link(self):
         # Live regression guard for the JWT-prefix → Vwgh fix.
