@@ -141,70 +141,82 @@ JSON-Parsing und Rendering in einem Aufruf.
 
 ## Skript-Output
 
-Default (Markdown). Für Volltext-Dokumente:
+Default (Markdown). Für Rechtssatz-Dokumente (häufigster Fall bei
+Norm-Suchen — Rechtssätze sind im Norm-Index hinterlegt):
 ```
-**Treffer:** 412 (Seite 1, 20 pro Seite)
+**Treffer:** 7 (Seite 1, 10 pro Seite)
 
-### 1. OGH 5Ob234/20b vom 15.04.2021 [Volltext]
+### 1. OGH 2 Ob 554/86 vom 28.10.1986 [Rechtssatz RS0051942]
+**Norm:** ArbVG §105 Abs3 Z2 litb
+**Rechtsgebiet:** Zivilrecht
+**ECLI:** ECLI:AT:OGH0002:1986:RS0051942
+- [Rechtssatz im RIS](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19861028_OGH0002_0020OB00554_8600000_007)
+- [Volltext der Stammentscheidung](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJT_19861028_OGH0002_0020OB00554_8600000_000)
+_Auch zitiert in 21 weiteren Entscheidungen._
+```
+
+Für Volltext-Dokumente:
+```
+### 2. OGH 5 Ob 234/20b vom 15.04.2021 [Volltext]
 _Leitsatz:_ ...
 **Norm:** ABGB §1119
 **Rechtsgebiet:** Zivilrecht
-**Fachgebiet:** Bestandrecht
 - [Zur Entscheidung im RIS](https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html)
 ```
 
-Für Rechtssatz-Dokumente: zusätzlich ein abgeleiteter Volltext-Link.
-```
-### 2. OGH 9ObA110/88 vom 01.06.1988 [Rechtssatz]
-_Leitsatz:_ ...
-- [Rechtssatz im RIS](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentennummer=JJR_19880601_OGH0002_009OBA00110_8800000_003)
-- [Volltext im RIS (vermutet)](https://ris.bka.gv.at/Dokumente/Justiz/JJT_19880601_OGH0002_009OBA00110_8800000_000/JJT_19880601_OGH0002_009OBA00110_8800000_000.html)
-```
+### Anmerkungen
 
-Anmerkungen zum Output:
-- **Gericht statt Applikation:** Wenn die API für einen Treffer ein
-  konkretes Gericht (`OGH`, `OLG Wien`, `BG …`) liefert, wird das in
-  der Überschrift verwendet. Sonst Fallback auf die Applikation
-  (`Justiz`, `Vfgh`, …).
-- **Datumsformat:** ISO-Datum wird in DD.MM.YYYY umgewandelt.
-- **Norm/Rechtsgebiet/Fachgebiet:** werden nur ausgegeben, wenn die
-  API sie für den jeweiligen Treffer mitliefert.
-- **Volltext-URL bei Rechtssätzen:** per Heuristik aus der Dokumenten-
-  nummer abgeleitet (`J{Court}R_…_NNN` → `J{Court}T_…_000`). Bei OGH/
-  VfGH/VwGH trifft das in der überwältigenden Mehrheit der Fälle.
-  Lieferte der abgeleitete Link 404, ist der Rechtssatz-Link der
-  Fallback — über die Geschäftszahl findet sich das Volltext-Dokument
-  im RIS-Web zuverlässig.
+- **Heading aus Stamm-Entscheidung:** Bei Rechtssätzen liefert die API
+  in `Geschaeftszahl` eine Verkettung *aller* zitierenden Geschäftszahlen
+  und in `Entscheidungsdatum` das jüngste Update-Datum. Beides ist
+  irreführend. Wir nutzen stattdessen `Justiz.Entscheidungstexte.item[0]`
+  — die Stamm-Entscheidung — als Quelle für Heading-GZ + Datum.
+- **Volltext-URL bei Rechtssätzen:** kommt direkt aus der API (Stamm-
+  `DokumentUrl`), nicht mehr aus der Heuristik. Die Heuristik bleibt
+  als Fallback für seltene Sonderfälle.
+- **Gericht aus `Technisch.Organ`** (zuverlässiger als
+  `Justiz.Gericht`). Fallback auf Applikation.
+- **Rechtssatznummer im Doktyp-Label:** `[Rechtssatz RS0051942]` —
+  praktisch zum Zitieren.
+- **„Auch zitiert in N weiteren Entscheidungen":** Anzahl − 1 (die
+  Stamm zählt nicht), nur ausgegeben wenn N > 1.
+- **Datumsformat:** ISO-Datum → DD.MM.YYYY.
 
-`--json` liefert ein normalisiertes Objekt:
+### JSON-Output
+
+`--json` liefert ein normalisiertes Objekt mit allen Feldern:
 ```jsonc
 {
-  "total_hits": 412, "page": 1, "page_size": 20,
+  "total_hits": 7, "page": 1, "page_size": 10,
   "documents": [
     {
-      "dokumentnummer": "JJR_19880601_OGH0002_...",
+      "dokumentnummer": "JJR_19861028_OGH0002_0020OB00554_8600000_007",
       "applikation": "Justiz",
-      "gericht": "OGH",                  // oder null wenn API leer
+      "gericht": "OGH",
       "doc_type": "Rechtssatz",          // "Volltext" | "Rechtssatz" | null
-      "geschaeftszahl": "9ObA110/88",
-      "geschaeftszahlen": ["9ObA110/88"],
-      "entscheidungsdatum": "1988-06-01",
-      "leitsatz": "...",
-      "normen": ["ArbVG §96"],           // Liste, kann leer sein
-      "rechtsgebiet": "Zivilrecht",      // oder null
-      "fachgebiete": ["Arbeitsrecht"],   // Liste, kann leer sein
-      "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._003",
-      "volltext_url": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_..._000/...html",
-      "content_urls": { "html": "...", "pdf": "...", "xml": "..." }
+      "rechtssatznummer": "RS0051942",   // null bei Volltext-Dokumenten
+      "ecli": "ECLI:AT:OGH0002:1986:RS0051942",
+      "geschaeftszahl": "2 Ob 554/86",   // Stamm-GZ aus Entscheidungstexte[0]
+      "geschaeftszahlen": [...],         // ALLE zitierenden GZ
+      "entscheidungsdatum": "1986-10-28", // Stamm-Datum
+      "leitsatz": null,                  // Bei Rechtssätzen meist null
+      "normen": ["ArbVG §105 Abs3 Z2 litb"],
+      "rechtsgebiet": "Zivilrecht",
+      "rechtsgebiete": ["Zivilrecht"],
+      "fachgebiete": [],
+      "entscheidungstexte_count": 22,
+      "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._007",
+      "volltext_url": "https://www.ris.bka.gv.at/Dokument.wxe?...JJT_..._000",
+      "content_urls": { "html": "...", "pdf": "...", "xml": "...", "rtf": "..." }
     }
   ]
 }
 ```
 
-`doc_type` und `volltext_url` sind nur bei OGH/VfGH/VwGH-Dokumenten
-gesetzt (J{Court}{T|R}-Konvention). Andere Applikationen (BVWG, LVWG,
-DSB u. a.) folgen der Konvention nicht; dort bleibt `doc_type = null`
-und `volltext_url = null`.
+`doc_type` und `rechtssatznummer` sind nur bei OGH/VfGH/VwGH-Dokumenten
+zuverlässig gesetzt (`J{Court}{T|R}`-Konvention). Andere Applikationen
+(BVWG, LVWG, DSB u. a.) folgen der Konvention nicht; dort bleibt
+`doc_type = null`.
 
 `--raw` gibt die unveränderte API-Antwort aus, falls du selbst parsen willst.
 

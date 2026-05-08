@@ -215,13 +215,17 @@ class TestRenderMarkdownPolish(unittest.TestCase):
             "applikation": "Justiz",
             "gericht": None,
             "doc_type": "Volltext",
+            "rechtssatznummer": None,
+            "ecli": None,
             "geschaeftszahl": "8ObA2/23x",
             "geschaeftszahlen": ["8ObA2/23x"],
             "entscheidungsdatum": "2023-02-28",
             "leitsatz": None,
             "normen": [],
             "rechtsgebiet": None,
+            "rechtsgebiete": [],
             "fachgebiete": [],
+            "entscheidungstexte_count": 0,
             "link": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_…/JJT_….html",
             "volltext_url": None,
             "content_urls": {},
@@ -240,13 +244,20 @@ class TestRenderMarkdownPolish(unittest.TestCase):
         out = self._render({"gericht": None})
         self.assertIn("Justiz 8ObA2/23x vom 28.02.2023", out)
 
-    def test_norm_rechtsgebiet_fachgebiet_render_when_present(self):
+    def test_rechtssatz_label_includes_rs_number(self):
+        out = self._render({"doc_type": "Rechtssatz",
+                            "rechtssatznummer": "RS0051942"})
+        self.assertIn("[Rechtssatz RS0051942]", out)
+
+    def test_norm_rechtsgebiet_fachgebiet_ecli_render_when_present(self):
         out = self._render({"normen": ["ArbVG §96", "ABGB §879"],
                             "rechtsgebiet": "Zivilrecht",
-                            "fachgebiete": ["Arbeitsrecht"]})
+                            "fachgebiete": ["Arbeitsrecht"],
+                            "ecli": "ECLI:AT:OGH0002:2023:..."})
         self.assertIn("**Norm:** ArbVG §96, ABGB §879", out)
         self.assertIn("**Rechtsgebiet:** Zivilrecht", out)
         self.assertIn("**Fachgebiet:** Arbeitsrecht", out)
+        self.assertIn("**ECLI:** ECLI:AT:OGH0002:2023:...", out)
 
     def test_link_uses_markdown_link_syntax(self):
         out = self._render({})
@@ -255,14 +266,23 @@ class TestRenderMarkdownPolish(unittest.TestCase):
             out,
         )
 
-    def test_rechtssatz_renders_two_links(self):
+    def test_rechtssatz_renders_stamm_volltext_link(self):
         out = self._render({
             "doc_type": "Rechtssatz",
             "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._003",
-            "volltext_url": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_…/JJT_….html",
+            "volltext_url": "https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJT_...",
         })
         self.assertIn("[Rechtssatz im RIS](", out)
-        self.assertIn("[Volltext im RIS (vermutet)](", out)
+        self.assertIn("[Volltext der Stammentscheidung](", out)
+
+    def test_zitate_count_appended_when_more_than_one(self):
+        out = self._render({"doc_type": "Rechtssatz",
+                            "entscheidungstexte_count": 22})
+        self.assertIn("Auch zitiert in 21 weiteren Entscheidungen", out)
+
+    def test_zitate_count_hidden_when_one_or_zero(self):
+        out = self._render({"entscheidungstexte_count": 1})
+        self.assertNotIn("Auch zitiert", out)
 
 
 class TestNullHint(unittest.TestCase):
