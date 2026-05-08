@@ -109,6 +109,28 @@ def derive_volltext_docnr(docnr: str | None) -> str | None:
     return "_".join(parts)
 
 
+def normalize_norm(value: str | None) -> tuple[str | None, str | None]:
+    """Repariert Norm-Eingaben ohne §-Zeichen.
+
+    Der RIS-Norm-Index ist auf die kanonische Form ``{Kürzel} §{Paragraph}``
+    angewiesen; ohne § fällt der Index praktisch komplett weg. Auf der
+    Mobile-Tastatur ist § umständlich, deshalb fügt das Skript ihn ein,
+    wenn die Eingabe das offensichtliche Muster ``{Kürzel} {Zahl}`` hat.
+
+    Returns (normalisierter_wert, original_falls_geaendert_sonst_None).
+    """
+    if not value:
+        return value, None
+    stripped = value.strip()
+    parts = stripped.split(None, 1)
+    if len(parts) != 2 or "§" in stripped:
+        return stripped, None
+    kuerzel, rest = parts
+    if rest and rest[0].isdigit():
+        return f"{kuerzel} §{rest}", value
+    return stripped, None
+
+
 def build_url(args: argparse.Namespace) -> str:
     params: list[tuple[str, str]] = [
         ("Applikation", args.applikation),
@@ -367,6 +389,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    norm_original = None
+    if args.norm:
+        args.norm, norm_original = normalize_norm(args.norm)
+
     url = build_url(args)
     raw = fetch_with_retries(url, args)
     if raw is None:
@@ -378,10 +404,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     norm = normalize(raw)
+    if norm_original is not None:
+        norm["norm_normalized"] = {"from": norm_original, "to": args.norm}
+
     if args.json:
         json.dump(norm, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
     else:
+        if norm_original is not None:
+            sys.stdout.write(
+                f"_Hinweis: Norm-Eingabe automatisch ergänzt — "
+                f"`{norm_original}` → `{args.norm}`._\n\n"
+            )
         sys.stdout.write(render_markdown(norm))
     return 0
 
