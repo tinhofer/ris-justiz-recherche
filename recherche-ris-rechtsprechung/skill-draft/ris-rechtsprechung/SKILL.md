@@ -224,7 +224,7 @@ Trefferdatensatz und überlasse ihm das Lesen.
   Entscheidungen (vor ca. 1990). Der Volltext kann existieren und das
   Suchwort enthalten, ohne dass der API-Index ihn findet. Das Skript
   ergänzt in diesem Fall automatisch einen Hinweis auf die RIS-Web-Suche
-  unter `https://ris.bka.gv.at/Justiz/`.
+  unter `https://www.ris.bka.gv.at/Judikatur/`.
 - **Timeout** → einmal mit kleinerem `--pro-seite` wiederholen (das Skript
   retried automatisch zwei Mal mit 2/4 s Pause).
 - **API-Pflichtparameter unbekannt** → Default-Pfad: `--applikation Justiz`,
@@ -279,7 +279,7 @@ Copy-Item -Recurse -Force `
    - `ris.bka.gv.at` — RIS-Direkt-HTML-URLs der Form
      `/Dokumente/Justiz/JJT_…/JJT_….html` (abgeleitete „Volltext
      (vermutet)"-Links bei Rechtssatz-Treffern; Hinweis-Link auf
-     die RIS-Web-Suche `https://ris.bka.gv.at/Justiz/` bei 0
+     die RIS-Web-Suche `https://www.ris.bka.gv.at/Judikatur/` bei 0
      Volltext-Treffern).
    - `www.ris.bka.gv.at` — `Dokument.wxe?…`-URLs, die die API selbst
      in der Trefferliste zurückgibt.

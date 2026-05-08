@@ -201,7 +201,8 @@ class TestNullHint(unittest.TestCase):
         # normalize-Output mit 0 Treffern simulieren
         empty = {"total_hits": 0, "page": 1, "page_size": 10, "documents": []}
         # Der Hinweis-Text sollte im SUCHWORTE_NULL_HINT-Konstanten stehen
-        self.assertIn("ris.bka.gv.at/Justiz/", ris_search.SUCHWORTE_NULL_HINT)
+        self.assertIn("www.ris.bka.gv.at/Judikatur/",
+                      ris_search.SUCHWORTE_NULL_HINT)
         self.assertIn("Volltext-Index", ris_search.SUCHWORTE_NULL_HINT)
         # Sicherstellen, dass die main()-Logik die Trigger-Bedingungen
         # (suchworte gesetzt + 0 Treffer) erkennt.
