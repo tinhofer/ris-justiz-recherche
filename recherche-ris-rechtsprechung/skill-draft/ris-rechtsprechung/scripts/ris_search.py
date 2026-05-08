@@ -383,8 +383,8 @@ SUCHWORTE_NULL_HINT = (
     "(vor ca. 1990) ist der OGD-Volltext-Index lückenhaft — der "
     "Volltext kann existieren und das Suchwort enthalten, ohne dass "
     "die API ihn findet. Eine Recherche direkt unter "
-    "<https://ris.bka.gv.at/Justiz/> mit denselben Suchworten kann "
-    "zusätzliche Funde liefern."
+    "<https://www.ris.bka.gv.at/Judikatur/> mit denselben Suchworten "
+    "kann zusätzliche Funde liefern."
 )
 
 
