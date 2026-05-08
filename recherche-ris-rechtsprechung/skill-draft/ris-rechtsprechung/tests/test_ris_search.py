@@ -60,6 +60,56 @@ class TestDocnumberMapping(unittest.TestCase):
         self.assertIsNone(ris_search.docnumber_to_html_url("a" * 60))
 
 
+class TestDocnrClassification(unittest.TestCase):
+    def test_rechtssatz_prefixes(self):
+        for docnr in ("JJR_19880601_OGH0002_009OBA00110_8800000_003",
+                      "JFR_19990101_19G00012_1900_00",
+                      "JWR_2024050094_20260326L01"):
+            self.assertEqual(ris_search.classify_docnr(docnr), "Rechtssatz", docnr)
+
+    def test_volltext_prefixes(self):
+        for docnr in ("JJT_19880601_OGH0002_009OBA00110_8800000_000",
+                      "JFT_19990101_19G00012_1900_00",
+                      "JWT_2024050094_20260326L01"):
+            self.assertEqual(ris_search.classify_docnr(docnr), "Volltext", docnr)
+
+    def test_unknown_prefixes_return_none(self):
+        # BVWG/LVWG/Dsk-Dokumentnummern folgen der J{Court}{T|R}-Konvention
+        # nicht und bleiben unklassifiziert.
+        self.assertIsNone(ris_search.classify_docnr("BVWGT_20240101_W123_2000000_1_00"))
+        self.assertIsNone(ris_search.classify_docnr("DSB_2023_X_001"))
+        self.assertIsNone(ris_search.classify_docnr(None))
+        self.assertIsNone(ris_search.classify_docnr(""))
+        self.assertIsNone(ris_search.classify_docnr("XY"))
+
+
+class TestDeriveVolltextDocnr(unittest.TestCase):
+    def test_jjr_to_jjt_with_index_to_zero(self):
+        derived = ris_search.derive_volltext_docnr(
+            "JJR_19880601_OGH0002_009OBA00110_8800000_003"
+        )
+        self.assertEqual(derived, "JJT_19880601_OGH0002_009OBA00110_8800000_000")
+
+    def test_jfr_to_jft(self):
+        derived = ris_search.derive_volltext_docnr("JFR_19990101_19G00012_1900_005")
+        self.assertEqual(derived, "JFT_19990101_19G00012_1900_000")
+
+    def test_jwr_to_jwt(self):
+        derived = ris_search.derive_volltext_docnr("JWR_2024050094_20260326L01_007")
+        self.assertEqual(derived, "JWT_2024050094_20260326L01_000")
+
+    def test_volltext_input_returns_none(self):
+        # Eingabe ist bereits ein Volltext-Dokument — nichts abzuleiten.
+        self.assertIsNone(ris_search.derive_volltext_docnr(
+            "JJT_19880601_OGH0002_009OBA00110_8800000_000"
+        ))
+
+    def test_unknown_input_returns_none(self):
+        self.assertIsNone(ris_search.derive_volltext_docnr("BVWGT_20240101_W123_2000000_1_00"))
+        self.assertIsNone(ris_search.derive_volltext_docnr(None))
+        self.assertIsNone(ris_search.derive_volltext_docnr(""))
+
+
 def _fetch(**overrides):
     """Build args, fetch live, normalize. Returns the structured dict."""
     argv = ["--applikation", overrides.pop("applikation", "Justiz")]

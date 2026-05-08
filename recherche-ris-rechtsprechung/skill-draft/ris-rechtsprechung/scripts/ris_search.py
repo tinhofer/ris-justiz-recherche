@@ -63,6 +63,12 @@ DOCNUMBER_PREFIX_TO_PATH.sort(key=lambda kv: -len(kv[0]))
 
 DOCNUMBER_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
 
+# 3-Zeichen-Prefixe der Konvention J{Court}{T|R}, getrennt nach Doktyp.
+# Andere Applikationen (BVWG, LVWG, Dsk, …) folgen der Konvention nicht
+# und bleiben unklassifiziert.
+RECHTSSATZ_PREFIXES = {"JJR", "JFR", "JWR"}
+VOLLTEXT_PREFIXES = {"JJT", "JFT", "JWT"}
+
 
 def docnumber_to_html_url(docnr: str) -> str | None:
     if not (5 <= len(docnr) <= 50 and DOCNUMBER_RE.match(docnr)):
@@ -71,6 +77,36 @@ def docnumber_to_html_url(docnr: str) -> str | None:
         if docnr.startswith(prefix):
             return f"https://ris.bka.gv.at/Dokumente/{path}/{docnr}/{docnr}.html"
     return None
+
+
+def classify_docnr(docnr: str | None) -> str | None:
+    """Liefert "Rechtssatz", "Volltext" oder None."""
+    if not docnr or len(docnr) < 3:
+        return None
+    head = docnr[:3]
+    if head in RECHTSSATZ_PREFIXES:
+        return "Rechtssatz"
+    if head in VOLLTEXT_PREFIXES:
+        return "Volltext"
+    return None
+
+
+def derive_volltext_docnr(docnr: str | None) -> str | None:
+    """Heuristik: aus einer Rechtssatz-Dokumentennummer die
+    wahrscheinliche Volltext-Dokumentennummer ableiten.
+
+    Konvention bei OGH/VfGH/VwGH: J{Court}R_…_NNN ↔ J{Court}T_…_000.
+    Trifft nicht in 100 % der Fälle zu — bei seltenen Sonderfällen
+    (z. B. berichtigte Entscheidungen) liefert der abgeleitete Link 404.
+    """
+    if classify_docnr(docnr) != "Rechtssatz":
+        return None
+    parts = docnr.split("_")
+    if len(parts) < 2:
+        return None
+    parts[0] = parts[0][:2] + "T"  # JJR → JJT, JFR → JFT, JWR → JWT
+    parts[-1] = "000"
+    return "_".join(parts)
 
 
 def build_url(args: argparse.Namespace) -> str:
@@ -229,14 +265,23 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             or (docnumber_to_html_url(docnr) if docnr else None)
         )
 
+        doc_type = classify_docnr(docnr)
+        volltext_url: str | None = None
+        if doc_type == "Rechtssatz":
+            derived = derive_volltext_docnr(docnr)
+            if derived:
+                volltext_url = docnumber_to_html_url(derived)
+
         docs.append({
             "dokumentnummer": docnr,
             "applikation": tech.get("Applikation"),
+            "doc_type": doc_type,
             "geschaeftszahl": gz,
             "geschaeftszahlen": gz_alle,
             "entscheidungsdatum": ent_datum,
             "leitsatz": leitsatz,
             "link": link,
+            "volltext_url": volltext_url,
             "content_urls": urls,
         })
 
@@ -258,13 +303,18 @@ def render_markdown(result: dict[str, Any]) -> str:
         gz = d["geschaeftszahl"] or "(ohne Geschaeftszahl)"
         datum = d["entscheidungsdatum"] or "?"
         app = d["applikation"] or ""
-        lines.append(f"### {i}. {app} {gz} — {datum}")
+        type_label = f"[{d['doc_type']}] " if d.get("doc_type") else ""
+        lines.append(f"### {i}. {type_label}{app} {gz} — {datum}")
         if d["leitsatz"]:
             ls = " ".join(d["leitsatz"].split())
             if len(ls) > 400:
                 ls = ls[:397] + "..."
             lines.append(f"_Leitsatz:_ {ls}")
-        if d["link"]:
+        if d.get("volltext_url"):
+            if d["link"]:
+                lines.append(f"- Rechtssatz: <{d['link']}>")
+            lines.append(f"- Volltext (vermutet): <{d['volltext_url']}>")
+        elif d["link"]:
             lines.append(f"<{d['link']}>")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
