@@ -216,14 +216,11 @@ class TestRenderMarkdownPolish(unittest.TestCase):
             "gericht": None,
             "doc_type": "Volltext",
             "rechtssatznummer": None,
-            "ecli": None,
             "geschaeftszahl": "8ObA2/23x",
             "geschaeftszahlen": ["8ObA2/23x"],
             "entscheidungsdatum": "2023-02-28",
             "leitsatz": None,
             "normen": [],
-            "rechtsgebiet": None,
-            "rechtsgebiete": [],
             "fachgebiete": [],
             "entscheidungstexte_count": 0,
             "link": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_…/JJT_….html",
@@ -249,15 +246,13 @@ class TestRenderMarkdownPolish(unittest.TestCase):
                             "rechtssatznummer": "RS0051942"})
         self.assertIn("[Rechtssatz RS0051942]", out)
 
-    def test_norm_rechtsgebiet_fachgebiet_ecli_render_when_present(self):
+    def test_norm_and_fachgebiet_render_when_present(self):
         out = self._render({"normen": ["ArbVG §96", "ABGB §879"],
-                            "rechtsgebiet": "Zivilrecht",
-                            "fachgebiete": ["Arbeitsrecht"],
-                            "ecli": "ECLI:AT:OGH0002:2023:..."})
+                            "fachgebiete": ["Arbeitsrecht"]})
         self.assertIn("**Norm:** ArbVG §96, ABGB §879", out)
-        self.assertIn("**Rechtsgebiet:** Zivilrecht", out)
         self.assertIn("**Fachgebiet:** Arbeitsrecht", out)
-        self.assertIn("**ECLI:** ECLI:AT:OGH0002:2023:...", out)
+        self.assertNotIn("**Rechtsgebiet:**", out)
+        self.assertNotIn("**ECLI:**", out)
 
     def test_link_uses_markdown_link_syntax(self):
         out = self._render({})
