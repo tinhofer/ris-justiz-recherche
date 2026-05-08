@@ -240,6 +240,19 @@ def all_texts(value: Any) -> list[str]:
     return []
 
 
+def format_date_de(iso_date: str | None) -> str | None:
+    """ISO YYYY-MM-DD → DD.MM.YYYY. Bei unerwartetem Format Original."""
+    if not iso_date:
+        return None
+    try:
+        y, m, d = iso_date.split("-", 2)
+        if len(y) == 4 and y.isdigit() and m.isdigit() and d.isdigit():
+            return f"{d}.{m}.{y}"
+    except ValueError:
+        pass
+    return iso_date
+
+
 def normalize(raw: dict[str, Any]) -> dict[str, Any]:
     result = (raw.get("OgdSearchResult") or {}).get("OgdDocumentResults") or {}
     hits = result.get("Hits") or {}
@@ -263,15 +276,28 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         gz_alle = all_texts(jud.get("Geschaeftszahl"))
         ent_datum = first_text(jud.get("Entscheidungsdatum"))
 
-        # Leitsatz steht je nach Applikation unter unterschiedlichen
-        # Schlüsseln. Statt einer festen Liste alle bekannten Werte
-        # durchprobieren — falls die API neue ergänzt, schadet es nicht.
-        leitsatz = None
+        # Leitsatz, Gericht, Norm, Rechtsgebiet, Fachgebiet stehen je nach
+        # Applikation unter unterschiedlichen Schlüsseln. Erst direkt unter
+        # Judikatur, dann in der app-spezifischen Untersektion suchen.
+        leitsatz: Any = None
+        gericht = first_text(jud.get("Gericht"))
+        normen = all_texts(jud.get("Norm"))
+        rechtsgebiet = first_text(jud.get("Rechtsgebiet"))
+        fachgebiete = all_texts(jud.get("Fachgebiet"))
         for app_key in APPLIKATIONEN:
             block = jud.get(app_key) or {}
-            if isinstance(block, dict) and block.get("Leitsatz"):
+            if not isinstance(block, dict):
+                continue
+            if leitsatz is None and block.get("Leitsatz"):
                 leitsatz = first_text(block["Leitsatz"]) or block["Leitsatz"]
-                break
+            if not gericht and block.get("Gericht"):
+                gericht = first_text(block.get("Gericht"))
+            if not normen and block.get("Norm"):
+                normen = all_texts(block.get("Norm"))
+            if not rechtsgebiet and block.get("Rechtsgebiet"):
+                rechtsgebiet = first_text(block.get("Rechtsgebiet"))
+            if not fachgebiete and block.get("Fachgebiet"):
+                fachgebiete = all_texts(block.get("Fachgebiet"))
 
         urls: dict[str, str] = {}
         cref = (data.get("Dokumentliste") or {}).get("ContentReference")
@@ -297,11 +323,15 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         docs.append({
             "dokumentnummer": docnr,
             "applikation": tech.get("Applikation"),
+            "gericht": gericht,
             "doc_type": doc_type,
             "geschaeftszahl": gz,
             "geschaeftszahlen": gz_alle,
             "entscheidungsdatum": ent_datum,
             "leitsatz": leitsatz,
+            "normen": normen,
+            "rechtsgebiet": rechtsgebiet,
+            "fachgebiete": fachgebiete,
             "link": link,
             "volltext_url": volltext_url,
             "content_urls": urls,
@@ -322,22 +352,28 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
     ]
     for i, d in enumerate(result["documents"], start=1):
-        gz = d["geschaeftszahl"] or "(ohne Geschaeftszahl)"
-        datum = d["entscheidungsdatum"] or "?"
-        app = d["applikation"] or ""
-        type_label = f"[{d['doc_type']}] " if d.get("doc_type") else ""
-        lines.append(f"### {i}. {type_label}{app} {gz} — {datum}")
+        gz = d["geschaeftszahl"] or "(ohne Geschäftszahl)"
+        datum = format_date_de(d["entscheidungsdatum"]) or "?"
+        court = d.get("gericht") or d.get("applikation") or ""
+        type_label = f" [{d['doc_type']}]" if d.get("doc_type") else ""
+        lines.append(f"### {i}. {court} {gz} vom {datum}{type_label}")
         if d["leitsatz"]:
             ls = " ".join(d["leitsatz"].split())
             if len(ls) > 400:
                 ls = ls[:397] + "..."
             lines.append(f"_Leitsatz:_ {ls}")
+        if d.get("normen"):
+            lines.append(f"**Norm:** {', '.join(d['normen'])}")
+        if d.get("rechtsgebiet"):
+            lines.append(f"**Rechtsgebiet:** {d['rechtsgebiet']}")
+        if d.get("fachgebiete"):
+            lines.append(f"**Fachgebiet:** {', '.join(d['fachgebiete'])}")
         if d.get("volltext_url"):
             if d["link"]:
-                lines.append(f"- Rechtssatz: <{d['link']}>")
-            lines.append(f"- Volltext (vermutet): <{d['volltext_url']}>")
+                lines.append(f"- [Rechtssatz im RIS]({d['link']})")
+            lines.append(f"- [Volltext im RIS (vermutet)]({d['volltext_url']})")
         elif d["link"]:
-            lines.append(f"<{d['link']}>")
+            lines.append(f"- [Zur Entscheidung im RIS]({d['link']})")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 

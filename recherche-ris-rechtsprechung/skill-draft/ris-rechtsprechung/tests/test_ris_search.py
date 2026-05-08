@@ -192,6 +192,79 @@ class TestRisLiveApi(unittest.TestCase):
         self.assertEqual(result["documents"], [])
 
 
+class TestFormatDateDe(unittest.TestCase):
+    def test_iso_to_de(self):
+        self.assertEqual(ris_search.format_date_de("2023-02-28"), "28.02.2023")
+        self.assertEqual(ris_search.format_date_de("1988-06-01"), "01.06.1988")
+
+    def test_passes_through_when_unparseable(self):
+        self.assertEqual(ris_search.format_date_de("28.02.2023"), "28.02.2023")
+        self.assertEqual(ris_search.format_date_de("nope"), "nope")
+
+    def test_falsy_returns_none(self):
+        self.assertIsNone(ris_search.format_date_de(""))
+        self.assertIsNone(ris_search.format_date_de(None))
+
+
+class TestRenderMarkdownPolish(unittest.TestCase):
+    """Smoke-Tests für die Output-Politur (Etappe 3)."""
+
+    def _render(self, doc_overrides):
+        base = {
+            "dokumentnummer": "JJT_19890315_OGH0002_009OBA00279_8800000_000",
+            "applikation": "Justiz",
+            "gericht": None,
+            "doc_type": "Volltext",
+            "geschaeftszahl": "8ObA2/23x",
+            "geschaeftszahlen": ["8ObA2/23x"],
+            "entscheidungsdatum": "2023-02-28",
+            "leitsatz": None,
+            "normen": [],
+            "rechtsgebiet": None,
+            "fachgebiete": [],
+            "link": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_…/JJT_….html",
+            "volltext_url": None,
+            "content_urls": {},
+        }
+        base.update(doc_overrides)
+        result = {"total_hits": 1, "page": 1, "page_size": 10,
+                  "documents": [base]}
+        return ris_search.render_markdown(result)
+
+    def test_heading_uses_de_date_and_court_when_present(self):
+        out = self._render({"gericht": "OGH"})
+        self.assertIn("OGH 8ObA2/23x vom 28.02.2023", out)
+        self.assertIn("[Volltext]", out)
+
+    def test_heading_falls_back_to_applikation_without_gericht(self):
+        out = self._render({"gericht": None})
+        self.assertIn("Justiz 8ObA2/23x vom 28.02.2023", out)
+
+    def test_norm_rechtsgebiet_fachgebiet_render_when_present(self):
+        out = self._render({"normen": ["ArbVG §96", "ABGB §879"],
+                            "rechtsgebiet": "Zivilrecht",
+                            "fachgebiete": ["Arbeitsrecht"]})
+        self.assertIn("**Norm:** ArbVG §96, ABGB §879", out)
+        self.assertIn("**Rechtsgebiet:** Zivilrecht", out)
+        self.assertIn("**Fachgebiet:** Arbeitsrecht", out)
+
+    def test_link_uses_markdown_link_syntax(self):
+        out = self._render({})
+        self.assertIn(
+            "- [Zur Entscheidung im RIS](https://ris.bka.gv.at/Dokumente/Justiz/",
+            out,
+        )
+
+    def test_rechtssatz_renders_two_links(self):
+        out = self._render({
+            "doc_type": "Rechtssatz",
+            "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._003",
+            "volltext_url": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_…/JJT_….html",
+        })
+        self.assertIn("[Rechtssatz im RIS](", out)
+        self.assertIn("[Volltext im RIS (vermutet)](", out)
+
+
 class TestNullHint(unittest.TestCase):
     """Smoke-Test für den Hinweis bei 0 Suchworte-Treffern."""
 
