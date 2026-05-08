@@ -83,6 +83,36 @@ class TestDocnrClassification(unittest.TestCase):
         self.assertIsNone(ris_search.classify_docnr("XY"))
 
 
+class TestNormalizeNorm(unittest.TestCase):
+    def test_inserts_paragraph_sign_when_missing(self):
+        self.assertEqual(ris_search.normalize_norm("ArbVG 105"),
+                         ("ArbVG §105", "ArbVG 105"))
+        self.assertEqual(ris_search.normalize_norm("ABGB 1319a"),
+                         ("ABGB §1319a", "ABGB 1319a"))
+
+    def test_canonical_form_unchanged(self):
+        self.assertEqual(ris_search.normalize_norm("ABGB §1319a"),
+                         ("ABGB §1319a", None))
+        self.assertEqual(ris_search.normalize_norm("ArbVG §105"),
+                         ("ArbVG §105", None))
+
+    def test_whitespace_stripped_no_fix(self):
+        self.assertEqual(ris_search.normalize_norm("  ABGB §1319a  "),
+                         ("ABGB §1319a", None))
+
+    def test_no_digit_after_kuerzel_unchanged(self):
+        # Kein Pflicht-Muster — wird nicht angefasst.
+        self.assertEqual(ris_search.normalize_norm("ABGB Allgemein"),
+                         ("ABGB Allgemein", None))
+
+    def test_single_token_unchanged(self):
+        self.assertEqual(ris_search.normalize_norm("ABGB"), ("ABGB", None))
+
+    def test_empty_and_none(self):
+        self.assertEqual(ris_search.normalize_norm(""), ("", None))
+        self.assertEqual(ris_search.normalize_norm(None), (None, None))
+
+
 class TestDeriveVolltextDocnr(unittest.TestCase):
     def test_jjr_to_jjt_with_index_to_zero(self):
         derived = ris_search.derive_volltext_docnr(

@@ -67,7 +67,7 @@ Plus **mindestens einer** dieser Suchparameter (sonst HTTP 400):
 |---|---|---|
 | `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT |
 | `Geschaeftszahl` | `5Ob234/20b` | exakte Aktenzeichen-Suche |
-| `Norm` | `ABGB §1319a` | **Format: `{Gesetzeskürzel} §{Paragraph}`** (kanonische Zitierform) — andere Reihenfolgen wie `1319a ABGB` liefern fast keine Treffer. Für EU-Verordnungen (z. B. DSGVO) ist der `Norm`-Index unzuverlässig; lieber Volltextsuche via `Suchworte`. |
+| `Norm` | `ABGB §1319a` | **Format: `{Gesetzeskürzel} §{Paragraph}`** (kanonische Zitierform) — andere Reihenfolgen wie `1319a ABGB` liefern fast keine Treffer. Fehlt nur das `§`-Zeichen (`ArbVG 105`), ergänzt das Skript es automatisch und schreibt einen Hinweis in den Output. Für EU-Verordnungen (z. B. DSGVO) ist der `Norm`-Index unzuverlässig; lieber Volltextsuche via `Suchworte`. |
 | `Rechtssatznummer` | `RS0123456` | bei OGH-Rechtssatz-Suche |
 | `Schlagworte` | `Datenschutz` | kontrolliertes RIS-Vokabular |
 | `EntscheidungsdatumVon` / `Bis` | `2024-01-01` | ISO-Datum |
