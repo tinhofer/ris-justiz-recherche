@@ -271,8 +271,15 @@ Copy-Item -Recurse -Force `
 2. Claude.ai → *Settings → Capabilities → Skills* → **Upload skill** →
    ZIP-Datei auswählen.
 3. **Wichtig:** Im selben Settings-Bereich unter
-   *Web search & code execution → Network access* die Domain
-   `data.bka.gv.at` freigeben. Ohne das blockt die Sandbox die API-Calls.
+   *Web search & code execution → Network access* zwei Domains freigeben:
+   - `data.bka.gv.at` — die OGD-API selbst (Pflicht; ohne das blockt
+     die Sandbox alle Skript-Aufrufe).
+   - `ris.bka.gv.at` — das RIS-Web-Frontend (empfohlen). Der Skill
+     liefert bei 0 Volltext-Treffern einen Hinweis-Link zur
+     RIS-Web-Suche `https://ris.bka.gv.at/Justiz/`, der breiter
+     indiziert ist als die OGD-API. Ohne diese Freigabe sind die
+     im Output verlinkten Volltext-URLs (`Volltext (vermutet): …`
+     bei Rechtssatz-Treffern) auch nicht direkt von Claude erreichbar.
 
 ### Endstruktur (überall identisch)
 
