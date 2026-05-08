@@ -215,6 +215,33 @@ bzw. `content_urls.html` bereit.
 User den Volltext einer Entscheidung will, gib ihm den Link aus dem
 Trefferdatensatz und überlasse ihm das Lesen.
 
+## Web-Search-Fallback (bei 0 API-Treffern)
+
+Bei `Suchworte`-Anfragen mit 0 Treffern erzeugt das Skript automatisch eine
+Google `site:`-Such-Query nach dem Muster
+
+```
+site:ris.bka.gv.at <Applikation> <Suchworte> [<Norm>] ["<Geschaeftszahl>"] [after:<Jahr>] [before:<Jahr>]
+```
+
+und gibt sie zusammen mit dem Hinweis aus. Hintergrund: Google indexiert
+das RIS-Web-Frontend deutlich breiter als der OGD-API-Volltext-Index —
+insbesondere bei alten Entscheidungen (vor ca. 1990), wo der API-Volltext
+oft amputiert oder gar nicht durchsuchbar ist.
+
+**Wenn Du in einem Claude-Kontext mit `web_search`-Tool läufst:** sobald
+Du die Query im Output siehst, übergib sie unverändert an das
+`web_search`-Tool. Aus den Treffern extrahierst Du RIS-URLs der Form
+`https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=…&Dokumentnummer=…` und
+holst Dir bei Bedarf den Volltext mit `web_fetch`. Daraus baust Du dann
+dieselben Trefferzeilen wie aus der API-Antwort (Geschäftszahl, Datum,
+Leitsatz/Rechtssatz, Link).
+
+Das Skript selbst führt **keine** Web-Suche aus — die Logik bleibt bei
+Claude. Im JSON-Output ist die Query als `websearch_query`-Feld
+verfügbar; im Markdown-Output steht sie im Hinweis-Block am Ende der
+Trefferliste.
+
 ## Fehlerfälle
 
 - **HTTP 400** → mindestens einen Suchparameter ergänzen oder spezifischer machen.
@@ -223,8 +250,8 @@ Trefferdatensatz und überlasse ihm das Lesen.
   Bekannte Limitation des OGD-Volltext-Index, insbesondere bei alten
   Entscheidungen (vor ca. 1990). Der Volltext kann existieren und das
   Suchwort enthalten, ohne dass der API-Index ihn findet. Das Skript
-  ergänzt in diesem Fall automatisch einen Hinweis auf die RIS-Web-Suche
-  unter `https://www.ris.bka.gv.at/Judikatur/`.
+  generiert in diesem Fall automatisch eine Google `site:`-Such-Query
+  als Fallback (siehe Abschnitt *Web-Search-Fallback*).
 - **Timeout** → einmal mit kleinerem `--pro-seite` wiederholen (das Skript
   retried automatisch zwei Mal mit 2/4 s Pause).
 - **API-Pflichtparameter unbekannt** → Default-Pfad: `--applikation Justiz`,
