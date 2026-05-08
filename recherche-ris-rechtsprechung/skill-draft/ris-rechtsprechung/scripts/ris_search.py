@@ -276,14 +276,20 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         gz_alle = all_texts(jud.get("Geschaeftszahl"))
         ent_datum = first_text(jud.get("Entscheidungsdatum"))
 
-        # Leitsatz, Gericht, Norm, Rechtsgebiet, Fachgebiet stehen je nach
-        # Applikation unter unterschiedlichen Schlüsseln. Erst direkt unter
-        # Judikatur, dann in der app-spezifischen Untersektion suchen.
+        # Gericht zuverlässig aus Technisch.Organ. Fallback auf Justiz.Gericht.
+        gericht = tech.get("Organ") or first_text(jud.get("Gericht"))
+
+        # API liefert die Felder im Plural: Normen / Rechtsgebiete /
+        # Rechtssatznummern. Vorher hatten wir die Singular-Form geprüft —
+        # daher blieben die Felder leer, obwohl die API sie liefert.
+        normen = all_texts(jud.get("Normen"))
+        ecli = first_text(jud.get("EuropeanCaseLawIdentifier"))
+
         leitsatz: Any = None
-        gericht = first_text(jud.get("Gericht"))
-        normen = all_texts(jud.get("Norm"))
-        rechtsgebiet = first_text(jud.get("Rechtsgebiet"))
-        fachgebiete = all_texts(jud.get("Fachgebiet"))
+        rechtsgebiete: list[str] = []
+        fachgebiete: list[str] = []
+        rechtssatznummer: str | None = None
+        entscheidungstexte: list[Any] = []
         for app_key in APPLIKATIONEN:
             block = jud.get(app_key) or {}
             if not isinstance(block, dict):
@@ -292,12 +298,31 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
                 leitsatz = first_text(block["Leitsatz"]) or block["Leitsatz"]
             if not gericht and block.get("Gericht"):
                 gericht = first_text(block.get("Gericht"))
-            if not normen and block.get("Norm"):
-                normen = all_texts(block.get("Norm"))
-            if not rechtsgebiet and block.get("Rechtsgebiet"):
-                rechtsgebiet = first_text(block.get("Rechtsgebiet"))
-            if not fachgebiete and block.get("Fachgebiet"):
-                fachgebiete = all_texts(block.get("Fachgebiet"))
+            if not rechtsgebiete and block.get("Rechtsgebiete"):
+                rechtsgebiete = all_texts(block.get("Rechtsgebiete"))
+            if not fachgebiete and block.get("Fachgebiete"):
+                fachgebiete = all_texts(block.get("Fachgebiete"))
+            if not rechtssatznummer and block.get("Rechtssatznummern"):
+                rechtssatznummer = first_text(block.get("Rechtssatznummern"))
+            if not entscheidungstexte and block.get("Entscheidungstexte"):
+                entscheidungstexte = as_list(
+                    (block.get("Entscheidungstexte") or {}).get("item")
+                )
+
+        # Bei Rechtssatz-Dokumenten ist die "Geschaeftszahl" oben eine
+        # verkettete Liste aller zitierenden Geschäftszahlen, und das
+        # "Entscheidungsdatum" das letzte Update-Datum — nicht das
+        # Entscheidungsdatum der Stamm-Entscheidung. Letztere steht
+        # sauber in Entscheidungstexte.item[0]. Wenn vorhanden, nehmen
+        # wir die als Quelle für GZ + Datum + Volltext-URL.
+        stamm_volltext_url: str | None = None
+        if entscheidungstexte and isinstance(entscheidungstexte[0], dict):
+            stamm = entscheidungstexte[0]
+            if stamm.get("Geschaeftszahl"):
+                gz = stamm.get("Geschaeftszahl")
+            if stamm.get("Entscheidungsdatum"):
+                ent_datum = stamm.get("Entscheidungsdatum")
+            stamm_volltext_url = stamm.get("DokumentUrl")
 
         urls: dict[str, str] = {}
         cref = (data.get("Dokumentliste") or {}).get("ContentReference")
@@ -314,8 +339,10 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         )
 
         doc_type = classify_docnr(docnr)
-        volltext_url: str | None = None
-        if doc_type == "Rechtssatz":
+        # Volltext-URL: bevorzugt aus Entscheidungstexte (echt von der API),
+        # sonst Heuristik aus der Dokumentennummer.
+        volltext_url = stamm_volltext_url
+        if doc_type == "Rechtssatz" and not volltext_url:
             derived = derive_volltext_docnr(docnr)
             if derived:
                 volltext_url = docnumber_to_html_url(derived)
@@ -325,13 +352,17 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             "applikation": tech.get("Applikation"),
             "gericht": gericht,
             "doc_type": doc_type,
+            "rechtssatznummer": rechtssatznummer,
+            "ecli": ecli,
             "geschaeftszahl": gz,
             "geschaeftszahlen": gz_alle,
             "entscheidungsdatum": ent_datum,
             "leitsatz": leitsatz,
             "normen": normen,
-            "rechtsgebiet": rechtsgebiet,
+            "rechtsgebiet": rechtsgebiete[0] if rechtsgebiete else None,
+            "rechtsgebiete": rechtsgebiete,
             "fachgebiete": fachgebiete,
+            "entscheidungstexte_count": len(entscheidungstexte),
             "link": link,
             "volltext_url": volltext_url,
             "content_urls": urls,
@@ -355,7 +386,12 @@ def render_markdown(result: dict[str, Any]) -> str:
         gz = d["geschaeftszahl"] or "(ohne Geschäftszahl)"
         datum = format_date_de(d["entscheidungsdatum"]) or "?"
         court = d.get("gericht") or d.get("applikation") or ""
-        type_label = f" [{d['doc_type']}]" if d.get("doc_type") else ""
+        type_label = ""
+        if d.get("doc_type"):
+            if d.get("rechtssatznummer"):
+                type_label = f" [{d['doc_type']} {d['rechtssatznummer']}]"
+            else:
+                type_label = f" [{d['doc_type']}]"
         lines.append(f"### {i}. {court} {gz} vom {datum}{type_label}")
         if d["leitsatz"]:
             ls = " ".join(d["leitsatz"].split())
@@ -368,12 +404,22 @@ def render_markdown(result: dict[str, Any]) -> str:
             lines.append(f"**Rechtsgebiet:** {d['rechtsgebiet']}")
         if d.get("fachgebiete"):
             lines.append(f"**Fachgebiet:** {', '.join(d['fachgebiete'])}")
+        if d.get("ecli"):
+            lines.append(f"**ECLI:** {d['ecli']}")
         if d.get("volltext_url"):
             if d["link"]:
                 lines.append(f"- [Rechtssatz im RIS]({d['link']})")
-            lines.append(f"- [Volltext im RIS (vermutet)]({d['volltext_url']})")
+            label = ("Volltext der Stammentscheidung"
+                     if d.get("doc_type") == "Rechtssatz"
+                     else "Volltext im RIS")
+            lines.append(f"- [{label}]({d['volltext_url']})")
         elif d["link"]:
             lines.append(f"- [Zur Entscheidung im RIS]({d['link']})")
+        n_zitate = d.get("entscheidungstexte_count") or 0
+        if n_zitate > 1:
+            lines.append(
+                f"_Auch zitiert in {n_zitate - 1} weiteren Entscheidungen._"
+            )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
