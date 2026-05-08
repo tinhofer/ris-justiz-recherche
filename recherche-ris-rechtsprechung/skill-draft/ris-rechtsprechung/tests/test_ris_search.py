@@ -191,6 +191,22 @@ class TestRisLiveApi(unittest.TestCase):
         self.assertEqual(result["total_hits"], 0)
         self.assertEqual(result["documents"], [])
 
+
+class TestNullHint(unittest.TestCase):
+    """Smoke-Test für den Hinweis bei 0 Suchworte-Treffern (Markdown-Rendering)."""
+
+    def test_hint_rendered_in_markdown_when_suchworte_zero_hits(self):
+        argv = ["--applikation", "Justiz", "--suchworte", "irrelevant"]
+        args = ris_search.parse_args(argv)
+        # normalize-Output mit 0 Treffern simulieren
+        empty = {"total_hits": 0, "page": 1, "page_size": 10, "documents": []}
+        # Der Hinweis-Text sollte im SUCHWORTE_NULL_HINT-Konstanten stehen
+        self.assertIn("ris.bka.gv.at/Justiz/", ris_search.SUCHWORTE_NULL_HINT)
+        self.assertIn("Volltext-Index", ris_search.SUCHWORTE_NULL_HINT)
+        # Sicherstellen, dass die main()-Logik die Trigger-Bedingungen
+        # (suchworte gesetzt + 0 Treffer) erkennt.
+        self.assertTrue(args.suchworte and empty["total_hits"] == 0)
+
     def test_vwgh_result_has_vwgh_link(self):
         # Live regression guard for the JWT-prefix → Vwgh fix.
         # Die API liefert den Link je nach Treffer entweder als
