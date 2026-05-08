@@ -279,14 +279,12 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         # Gericht zuverlässig aus Technisch.Organ. Fallback auf Justiz.Gericht.
         gericht = tech.get("Organ") or first_text(jud.get("Gericht"))
 
-        # API liefert die Felder im Plural: Normen / Rechtsgebiete /
-        # Rechtssatznummern. Vorher hatten wir die Singular-Form geprüft —
-        # daher blieben die Felder leer, obwohl die API sie liefert.
+        # API liefert die Felder im Plural: Normen / Rechtssatznummern.
+        # Vorher hatten wir die Singular-Form geprüft — daher blieben sie
+        # leer, obwohl die API sie liefert.
         normen = all_texts(jud.get("Normen"))
-        ecli = first_text(jud.get("EuropeanCaseLawIdentifier"))
 
         leitsatz: Any = None
-        rechtsgebiete: list[str] = []
         fachgebiete: list[str] = []
         rechtssatznummer: str | None = None
         entscheidungstexte: list[Any] = []
@@ -298,8 +296,6 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
                 leitsatz = first_text(block["Leitsatz"]) or block["Leitsatz"]
             if not gericht and block.get("Gericht"):
                 gericht = first_text(block.get("Gericht"))
-            if not rechtsgebiete and block.get("Rechtsgebiete"):
-                rechtsgebiete = all_texts(block.get("Rechtsgebiete"))
             if not fachgebiete and block.get("Fachgebiete"):
                 fachgebiete = all_texts(block.get("Fachgebiete"))
             if not rechtssatznummer and block.get("Rechtssatznummern"):
@@ -353,14 +349,11 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             "gericht": gericht,
             "doc_type": doc_type,
             "rechtssatznummer": rechtssatznummer,
-            "ecli": ecli,
             "geschaeftszahl": gz,
             "geschaeftszahlen": gz_alle,
             "entscheidungsdatum": ent_datum,
             "leitsatz": leitsatz,
             "normen": normen,
-            "rechtsgebiet": rechtsgebiete[0] if rechtsgebiete else None,
-            "rechtsgebiete": rechtsgebiete,
             "fachgebiete": fachgebiete,
             "entscheidungstexte_count": len(entscheidungstexte),
             "link": link,
@@ -400,12 +393,8 @@ def render_markdown(result: dict[str, Any]) -> str:
             lines.append(f"_Leitsatz:_ {ls}")
         if d.get("normen"):
             lines.append(f"**Norm:** {', '.join(d['normen'])}")
-        if d.get("rechtsgebiet"):
-            lines.append(f"**Rechtsgebiet:** {d['rechtsgebiet']}")
         if d.get("fachgebiete"):
             lines.append(f"**Fachgebiet:** {', '.join(d['fachgebiete'])}")
-        if d.get("ecli"):
-            lines.append(f"**ECLI:** {d['ecli']}")
         if d.get("volltext_url"):
             if d["link"]:
                 lines.append(f"- [Rechtssatz im RIS]({d['link']})")

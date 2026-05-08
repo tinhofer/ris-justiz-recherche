@@ -148,8 +148,6 @@ Norm-Suchen — Rechtssätze sind im Norm-Index hinterlegt):
 
 ### 1. OGH 2 Ob 554/86 vom 28.10.1986 [Rechtssatz RS0051942]
 **Norm:** ArbVG §105 Abs3 Z2 litb
-**Rechtsgebiet:** Zivilrecht
-**ECLI:** ECLI:AT:OGH0002:1986:RS0051942
 - [Rechtssatz im RIS](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJR_19861028_OGH0002_0020OB00554_8600000_007)
 - [Volltext der Stammentscheidung](https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentnummer=JJT_19861028_OGH0002_0020OB00554_8600000_000)
 _Auch zitiert in 21 weiteren Entscheidungen._
@@ -160,7 +158,6 @@ Für Volltext-Dokumente:
 ### 2. OGH 5 Ob 234/20b vom 15.04.2021 [Volltext]
 _Leitsatz:_ ...
 **Norm:** ABGB §1119
-**Rechtsgebiet:** Zivilrecht
 - [Zur Entscheidung im RIS](https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html)
 ```
 
@@ -195,14 +192,11 @@ _Leitsatz:_ ...
       "gericht": "OGH",
       "doc_type": "Rechtssatz",          // "Volltext" | "Rechtssatz" | null
       "rechtssatznummer": "RS0051942",   // null bei Volltext-Dokumenten
-      "ecli": "ECLI:AT:OGH0002:1986:RS0051942",
       "geschaeftszahl": "2 Ob 554/86",   // Stamm-GZ aus Entscheidungstexte[0]
       "geschaeftszahlen": [...],         // ALLE zitierenden GZ
       "entscheidungsdatum": "1986-10-28", // Stamm-Datum
       "leitsatz": null,                  // Bei Rechtssätzen meist null
       "normen": ["ArbVG §105 Abs3 Z2 litb"],
-      "rechtsgebiet": "Zivilrecht",
-      "rechtsgebiete": ["Zivilrecht"],
       "fachgebiete": [],
       "entscheidungstexte_count": 22,
       "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._007",
