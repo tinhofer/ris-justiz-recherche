@@ -141,14 +141,28 @@ JSON-Parsing und Rendering in einem Aufruf.
 
 ## Skript-Output
 
-Default (Markdown):
+Default (Markdown). Für Volltext-Dokumente:
 ```
 **Treffer:** 412 (Seite 1, 20 pro Seite)
 
-### 1. Justiz 5Ob234/20b — 2021-04-15
+### 1. [Volltext] Justiz 5Ob234/20b — 2021-04-15
 _Leitsatz:_ ...
 <https://ris.bka.gv.at/Dokumente/Justiz/JJT_20210415_OGH0002_.../JJT_....html>
 ```
+
+Für Rechtssatz-Dokumente: zusätzlich ein abgeleiteter Volltext-Link.
+```
+### 2. [Rechtssatz] Justiz 9ObA110/88 — 1988-06-01
+_Leitsatz:_ ...
+- Rechtssatz: <https://www.ris.bka.gv.at/Dokument.wxe?Abfrage=Justiz&Dokumentennummer=JJR_19880601_OGH0002_009OBA00110_8800000_003>
+- Volltext (vermutet): <https://ris.bka.gv.at/Dokumente/Justiz/JJT_19880601_OGH0002_009OBA00110_8800000_000/JJT_19880601_OGH0002_009OBA00110_8800000_000.html>
+```
+
+Die Volltext-URL wird per Heuristik aus der Rechtssatz-Dokumentennummer
+abgeleitet (`J{Court}R_…_NNN` → `J{Court}T_…_000`). Bei OGH/VfGH/VwGH
+trifft das in der überwältigenden Mehrheit der Fälle. Lieferte der
+abgeleitete Link 404, ist der Rechtssatz-Link der Fallback — über die
+Geschäftszahl findet sich das Volltext-Dokument im RIS-Web zuverlässig.
 
 `--json` liefert ein normalisiertes Objekt:
 ```jsonc
@@ -156,18 +170,25 @@ _Leitsatz:_ ...
   "total_hits": 412, "page": 1, "page_size": 20,
   "documents": [
     {
-      "dokumentnummer": "JJT_20210415_OGH0002_...",
+      "dokumentnummer": "JJR_19880601_OGH0002_...",
       "applikation": "Justiz",
-      "geschaeftszahl": "5Ob234/20b",
-      "geschaeftszahlen": ["5Ob234/20b"],
-      "entscheidungsdatum": "2021-04-15",
+      "doc_type": "Rechtssatz",          // "Volltext" | "Rechtssatz" | null
+      "geschaeftszahl": "9ObA110/88",
+      "geschaeftszahlen": ["9ObA110/88"],
+      "entscheidungsdatum": "1988-06-01",
       "leitsatz": "...",
-      "link": "https://ris.bka.gv.at/Dokumente/Justiz/.../...html",
+      "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._003",
+      "volltext_url": "https://ris.bka.gv.at/Dokumente/Justiz/JJT_..._000/...html",
       "content_urls": { "html": "...", "pdf": "...", "xml": "..." }
     }
   ]
 }
 ```
+
+`doc_type` und `volltext_url` sind nur bei OGH/VfGH/VwGH-Dokumenten
+gesetzt (J{Court}{T|R}-Konvention). Andere Applikationen (BVWG, LVWG,
+DSB u. a.) folgen der Konvention nicht; dort bleibt `doc_type = null`
+und `volltext_url = null`.
 
 `--raw` gibt die unveränderte API-Antwort aus, falls du selbst parsen willst.
 
