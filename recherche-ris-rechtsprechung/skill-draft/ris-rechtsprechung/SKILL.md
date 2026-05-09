@@ -32,6 +32,14 @@ Suche aus dem Chat-Kontext heraus eindeutig per Skript schneller geht):
 - Norm-Suche (`--norm "ABGB §1319a"`)
 - Rechtssatznummer-Lookup (`--rechtssatznummer RS0123456`)
 
+**Norm-Suche → Rechtssätze**: bei reiner `--norm`-Suche (ohne
+`--suchworte`) liefert die OGD-API per Default überwiegend
+**Rechtssätze**, kaum Volltext-Entscheidungen — Rechtssätze sind im
+Norm-Index hinterlegt, Entscheidungstexte erst über die zusätzlichen
+Flags `SucheNachRechtssatz` / `SucheNachText`. Das Skript sendet diese
+Flags bewusst nur bei `--suchworte`-Suchen, weil bei reiner
+Norm-Recherche Rechtssätze i. d. R. die gewollte Trefferart sind.
+
 Nicht anwenden, wenn:
 - die Frage rein dogmatisch / rechtspolitisch ist, ohne Bezug zu einer
   konkreten Entscheidung (z. B. „Was sagt die Lehre zu §..." → Kommentar,
@@ -75,7 +83,7 @@ Plus **mindestens einer** dieser Suchparameter (sonst HTTP 400):
 
 | Parameter | Beispiel | Hinweis |
 |---|---|---|
-| `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT |
+| `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT. **OGD-API-Einschränkung**: nur _ein_ Platzhalter pro Wort (Web-Frontend toleriert mehrere). |
 | `Geschaeftszahl` | `5Ob234/20b` | exakte Aktenzeichen-Suche |
 | `Norm` | `ABGB §1319a` | **Format: `{Gesetzeskürzel} §{Paragraph}`** (kanonische Zitierform) — andere Reihenfolgen wie `1319a ABGB` liefern fast keine Treffer. Fehlt nur das `§`-Zeichen (`ArbVG 105`), ergänzt das Skript es automatisch und schreibt einen Hinweis in den Output. Für EU-Verordnungen (z. B. DSGVO) ist der `Norm`-Index unzuverlässig; lieber Volltextsuche via `Suchworte`. |
 | `Rechtssatznummer` | `RS0123456` | bei OGH-Rechtssatz-Suche |
@@ -364,6 +372,30 @@ ris-rechtsprechung/
 
 Voraussetzung: Python ≥ 3.9 in der ausführenden Umgebung. Keine
 Pip-Pakete nötig.
+
+## Lizenz, Namensnennung, Disclaimer
+
+Die über die OGD-Schnittstelle bezogenen RIS-Daten stehen unter
+**Creative Commons Namensnennung 4.0 International (CC BY 4.0)**.
+Bei Wiedergabe ist die Quelle zu nennen — das Skript hängt deshalb
+an jeden Markdown-Output automatisch eine Attribution-Zeile
+(`Quelle: RIS, Bundeskanzleramt — CC BY 4.0`) und im JSON-Output ein
+`attribution`-Feld.
+
+**Rechtlich verbindlich** ist laut Bundeskanzleramt **ausschließlich
+der Wortlaut im Bundesgesetzblatt** (Applikation
+„Bundesgesetzblatt authentisch") bzw. in den jeweiligen
+Landesgesetzblättern. Der OGD-Datenbestand wird ohne Gewähr für
+Richtigkeit, Aktualität oder Vollständigkeit bereitgestellt. Wenn Du
+RIS-Treffer im Chat ausgibst, formuliere entsprechend — die
+zurückgelieferten Texte sind **Recherchehilfe, keine authentische
+Rechtsquelle**.
+
+**Massenabfragen**: ein durchschnittlicher Skill-Aufruf (bis 5 Seiten
+× 100 Treffer) ist unbedenklich. Wer den Skill systematisch über den
+Tag verteilt nutzt oder `--max-seiten` deutlich hochdreht, sollte das
+RIS-Team unter `ris.it@bka.gv.at` vorab informieren (siehe OGD-FAQ),
+um nicht versehentlich als DDoS-Verkehr klassifiziert zu werden.
 
 ## Quellen
 

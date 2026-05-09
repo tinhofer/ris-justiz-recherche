@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- CC-BY-4.0-Namensnennung am Ende jedes Markdown-Outputs und als
+  `attribution`-Feld im JSON-Output. RIS-OGD-Daten stehen unter
+  CC BY 4.0; bei Wiedergabe ist die Quelle zu nennen — der Footer
+  enthält zusätzlich den Hinweis, dass nur das Bundes-/
+  Landesgesetzblatt rechtlich verbindlich ist (OGD-FAQ, BKA).
+- `SKILL.md`-Abschnitte zur `*`-Suchoperator-Einschränkung der API
+  (nur ein Platzhalter pro Wort, im Web mehrere möglich), zur
+  Norm-Suche → Rechtssatz-Verteilung und zum Massendownload-
+  Schwellwert (`ris.it@bka.gv.at` informieren).
 - Smoke-Tests für `ris_search.py` (Unit + Live-Integration) und
   GitHub-Action `ris-smoke-test.yml`, die die Tests sonntags um
   03:00 UTC gegen die Live-API laufen lässt (#3).

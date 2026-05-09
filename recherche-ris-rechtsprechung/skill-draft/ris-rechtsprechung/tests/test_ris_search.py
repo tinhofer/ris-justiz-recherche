@@ -478,6 +478,36 @@ class TestRenderMarkdownPagination(unittest.TestCase):
         self.assertIn("Seiten 1–3 geholt", out)
 
 
+class TestAttribution(unittest.TestCase):
+    def test_normalize_includes_attribution(self):
+        result = ris_search.normalize({"OgdSearchResult": {"OgdDocumentResults": {}}})
+        self.assertIn("attribution", result)
+        self.assertIn("CC BY 4.0", result["attribution"])
+        self.assertIn("RIS", result["attribution"])
+
+    def test_render_markdown_appends_attribution_footer(self):
+        result = {
+            "total_hits": 0, "page": 1, "page_size": 10,
+            "documents": [],
+            "attribution": ris_search.ATTRIBUTION_TEXT,
+        }
+        out = ris_search.render_markdown(result)
+        self.assertIn("CC BY 4.0", out)
+        self.assertIn("Bundeskanzleramt", out)
+        self.assertIn("Bundes-/Landesgesetzblatt", out)
+        # Footer steht am Ende, nach dem Trenner
+        self.assertTrue(out.rstrip().endswith("Landesgesetzblatt._"),
+                        f"Attribution must be the final line; got tail: {out[-200:]!r}")
+
+    def test_render_markdown_falls_back_to_default_attribution(self):
+        # Wenn das Result-Dict keine 'attribution' enthaelt (z. B. aus
+        # aelterem Code-Pfad), faellt render_markdown auf den Modul-Default
+        # zurueck — die Lizenz darf nie aus dem Output verschwinden.
+        result = {"total_hits": 0, "page": 1, "page_size": 10, "documents": []}
+        out = ris_search.render_markdown(result)
+        self.assertIn("CC BY 4.0", out)
+
+
 def _http_error(code: int, body: bytes = b"") -> urllib.error.HTTPError:
     return urllib.error.HTTPError(
         url="http://x",

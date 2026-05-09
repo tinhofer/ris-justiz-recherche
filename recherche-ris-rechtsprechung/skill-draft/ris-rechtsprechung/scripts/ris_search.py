@@ -29,6 +29,13 @@ from typing import Any
 
 BASE_URL = "https://data.bka.gv.at/ris/api/v2.6/Judikatur"
 
+ATTRIBUTION_TEXT = (
+    "Quelle: RIS, Bundeskanzleramt — CC BY 4.0 "
+    "(https://creativecommons.org/licenses/by/4.0/deed.de). "
+    "Recherchehilfe, keine authentische Rechtsquelle — verbindlich ist "
+    "ausschliesslich der Wortlaut im Bundes-/Landesgesetzblatt."
+)
+
 APPLIKATIONEN = [
     "Justiz", "Vfgh", "Vwgh", "Bvwg", "Lvwg",
     "Dsk", "AsylGH", "Normenliste", "Pvak", "Gbk", "Dok",
@@ -422,6 +429,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         "page": page,
         "page_size": size,
         "documents": docs,
+        "attribution": ATTRIBUTION_TEXT,
     }
 
 
@@ -475,6 +483,8 @@ def render_markdown(result: dict[str, Any]) -> str:
                 f"_Auch zitiert in {n_zitate - 1} weiteren Entscheidungen._"
             )
         lines.append("")
+    attribution = result.get("attribution") or ATTRIBUTION_TEXT
+    lines.append(f"---\n_{attribution}_")
     return "\n".join(lines).rstrip() + "\n"
 
 
