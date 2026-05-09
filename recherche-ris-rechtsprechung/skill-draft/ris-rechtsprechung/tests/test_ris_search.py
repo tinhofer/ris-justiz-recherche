@@ -15,12 +15,15 @@ Pure stdlib + unittest, no Pip dependency.
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import sys
 import time
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 SCRIPT_DIR = HERE.parent / "scripts"
@@ -355,6 +358,74 @@ class TestWebsearchQueryBuilder(unittest.TestCase):
                 )
                 return
         self.skipTest("No JW-prefixed result on first page; cannot assert mapping.")
+
+
+def _http_error(code: int, body: bytes = b"") -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url="http://x",
+        code=code,
+        msg="err",
+        hdrs=None,
+        fp=io.BytesIO(body),
+    )
+
+
+class TestFetchWithRetriesErrorHandling(unittest.TestCase):
+    """4xx werden nicht retried, 5xx + Netzfehler schon."""
+
+    def _args(self, retries: int = 2):
+        return ris_search.parse_args([
+            "--applikation", "Justiz", "--suchworte", "x",
+            "--retries", str(retries), "--retry-sleep", "0",
+            "--timeout", "1",
+        ])
+
+    def test_http_400_is_not_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(400, b"Missing parameter")) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1, "HTTP 400 must not retry")
+        self.assertIn("HTTP 400", err.getvalue())
+        self.assertIn("Missing parameter", err.getvalue())
+
+    def test_http_404_is_not_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(404)) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1)
+
+    def test_http_500_is_retried_until_exhausted(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(500)) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1 + args.retries)
+
+    def test_url_error_is_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=urllib.error.URLError("net down")) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1 + args.retries)
+
+    def test_eventual_success_after_transient_failure(self):
+        args = self._args(retries=2)
+        seq = [urllib.error.URLError("flap"), {"OgdSearchResult": {}}]
+        with patch.object(ris_search, "http_get_json", side_effect=seq) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertEqual(result, {"OgdSearchResult": {}})
+        self.assertEqual(m.call_count, 2)
 
 
 if __name__ == "__main__":

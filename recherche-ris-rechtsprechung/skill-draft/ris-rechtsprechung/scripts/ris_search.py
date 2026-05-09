@@ -184,12 +184,53 @@ _RETRYABLE = (
 )
 
 
+def _read_error_body(err: urllib.error.HTTPError, max_chars: int = 500) -> str:
+    """Liefert ein Body-Snippet aus dem HTTPError, kompakt fuer stderr."""
+    try:
+        body = err.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+    body = " ".join(body.split())
+    return body[:max_chars] + ("…" if len(body) > max_chars else "")
+
+
 def fetch_with_retries(url: str, args: argparse.Namespace) -> dict[str, Any] | None:
-    """Hole JSON von der RIS-API mit linearem Backoff. None = Aufgabe."""
+    """Hole JSON von der RIS-API mit linearem Backoff. None = Aufgabe.
+
+    HTTP 4xx (Client-Fehler — z. B. 400 bei fehlenden Pflichtparametern,
+    404 bei nicht existenter Ressource) werden NICHT retried, da sich die
+    Antwort durch erneutes Senden derselben Anfrage nicht aendert. Wir
+    geben stattdessen sofort eine sprechende Fehlermeldung aus —
+    insbesondere fuer 400 erklaeren wir die typische Ursache.
+    """
     for attempt in range(1 + args.retries):
         try:
             return http_get_json(url, timeout=args.timeout)
-        except _RETRYABLE as e:
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500:
+                body = _read_error_body(e)
+                if e.code == 400:
+                    sys.stderr.write(
+                        "RIS-API HTTP 400 — Anfrage abgewiesen.\n"
+                        "Typische Ursachen: kein Suchparameter angegeben, "
+                        "Datumsformat falsch (erwartet YYYY-MM-DD), oder "
+                        "ungueltige Kombination.\n"
+                    )
+                else:
+                    sys.stderr.write(f"RIS-API HTTP {e.code} — {e.reason}.\n")
+                if body:
+                    sys.stderr.write(f"Antwort: {body}\n")
+                sys.stderr.write(f"URL: {url}\n")
+                return None
+            if attempt < args.retries:
+                time.sleep(args.retry_sleep * (attempt + 1))
+                continue
+            sys.stderr.write(
+                f"RIS-API HTTP {e.code} nach {args.retries} Wiederholungen: "
+                f"{e.reason}\nURL: {url}\n"
+            )
+            return None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
             if attempt < args.retries:
                 time.sleep(args.retry_sleep * (attempt + 1))
                 continue
