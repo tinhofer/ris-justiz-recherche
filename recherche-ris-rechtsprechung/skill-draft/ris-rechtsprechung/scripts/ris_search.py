@@ -131,11 +131,26 @@ def normalize_norm(value: str | None) -> tuple[str | None, str | None]:
     return stripped, None
 
 
-def build_url(args: argparse.Namespace) -> str:
+def build_url(args: argparse.Namespace, page: int | None = None) -> str:
+    """Bau die Anfrage-URL.
+
+    Sortierung-Default: Wird weder ``--sortierung`` noch
+    ``--sort-direction`` gesetzt, sortieren wir nach
+    ``Datum`` / ``Descending``. Im Chat-Kontext ("aktuelle Judikatur
+    zu …") ist das fast immer die gewollte Reihenfolge; wer den
+    API-Default ``Relevanz`` zurueckwill, kann ``--sortierung Relevanz``
+    setzen.
+    """
+    sortierung = args.sortierung
+    sort_direction = args.sort_direction
+    if not sortierung and not sort_direction:
+        sortierung = "Datum"
+        sort_direction = "Descending"
+
     params: list[tuple[str, str]] = [
         ("Applikation", args.applikation),
         ("DokumenteProSeite", args.pro_seite),
-        ("Seitennummer", str(args.seite)),
+        ("Seitennummer", str(page if page is not None else args.seite)),
     ]
     # SucheNachRechtssatz / SucheNachText sind nur bei Volltext-Suche
     # (Suchworte) sinnvoll. Bei Geschaeftszahl/Norm/Rechtssatznummer-
@@ -155,8 +170,8 @@ def build_url(args: argparse.Namespace) -> str:
         (args.von, "EntscheidungsdatumVon"),
         (args.bis, "EntscheidungsdatumBis"),
         (args.im_ris_seit, "ImRisSeit"),
-        (args.sortierung, "Sortierung"),
-        (args.sort_direction, "SortDirection"),
+        (sortierung, "Sortierung"),
+        (sort_direction, "SortDirection"),
     ]
     for value, key in optional:
         if value:
@@ -411,11 +426,20 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_markdown(result: dict[str, Any]) -> str:
-    lines = [
-        f"**Treffer:** {result['total_hits']} "
-        f"(Seite {result['page']}, {result['page_size']} pro Seite)",
-        "",
-    ]
+    pages_fetched = result.get("pages_fetched") or 1
+    if pages_fetched > 1:
+        rendered = len(result.get("documents") or [])
+        header = (
+            f"**Treffer:** {result['total_hits']} "
+            f"(Seiten {result['page']}–{result['page'] + pages_fetched - 1} "
+            f"geholt, {rendered} Dokumente gerendert)"
+        )
+    else:
+        header = (
+            f"**Treffer:** {result['total_hits']} "
+            f"(Seite {result['page']}, {result['page_size']} pro Seite)"
+        )
+    lines = [header, ""]
     for i, d in enumerate(result["documents"], start=1):
         gz = d["geschaeftszahl"] or "(ohne Geschäftszahl)"
         datum = format_date_de(d["entscheidungsdatum"]) or "?"
@@ -473,10 +497,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--im-ris-seit", choices=IM_RIS_SEIT_VALUES,
                    dest="im_ris_seit")
     p.add_argument("--pro-seite", choices=PRO_SEITE_VALUES, default="Twenty")
-    p.add_argument("--seite", type=int, default=1)
-    p.add_argument("--sortierung")
+    p.add_argument("--seite", type=int, default=1,
+                   help="Startseite (1-basiert). Bei --alle-seiten der Einstiegspunkt.")
+    p.add_argument("--alle-seiten", action="store_true", dest="alle_seiten",
+                   help="Mehrere Seiten automatisch holen, bis Treffer erschoepft "
+                        "oder --max-seiten erreicht (mit RIS-konformer Pause).")
+    p.add_argument("--max-seiten", type=int, default=5, dest="max_seiten",
+                   help="Cap fuer --alle-seiten (Default 5).")
+    p.add_argument("--pause-pagination", type=float, default=1.5,
+                   dest="pause_pagination",
+                   help="Pause in Sekunden zwischen Seiten (RIS empfiehlt 1-2 s).")
+    p.add_argument("--sortierung",
+                   help="Default: Datum (im Chat-Kontext meist gewollt). "
+                        "Andere Werte: Relevanz, Geschaeftszahl.")
     p.add_argument("--sort-direction", choices=["Ascending", "Descending"],
-                   dest="sort_direction")
+                   dest="sort_direction",
+                   help="Default: Descending (zusammen mit Sortierung-Default).")
     p.add_argument("--no-rechtssatz", action="store_true")
     p.add_argument("--no-text", action="store_true")
     p.add_argument("--json", action="store_true",
@@ -533,6 +569,46 @@ def build_websearch_query(args: argparse.Namespace) -> str:
     return query
 
 
+def fetch_pages_normalized(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Holt eine oder mehrere Seiten und liefert ein zusammengefuehrtes
+    normalisiertes Resultat. Ohne ``--alle-seiten`` ist das Verhalten
+    identisch zum Single-Page-Aufruf.
+    """
+    raw = fetch_with_retries(build_url(args, page=args.seite), args)
+    if raw is None:
+        return None
+    norm = normalize(raw)
+
+    if not args.alle_seiten:
+        return norm
+
+    norm["pages_fetched"] = 1
+    page_size = norm.get("page_size") or 0
+    total = norm.get("total_hits") or 0
+    fetched = len(norm["documents"])
+    cap = max(1, args.max_seiten)
+
+    next_page = args.seite + 1
+    while (
+        norm["pages_fetched"] < cap
+        and (page_size == 0 or fetched < total)
+        and len(norm["documents"]) > 0
+    ):
+        time.sleep(args.pause_pagination)
+        raw_n = fetch_with_retries(build_url(args, page=next_page), args)
+        if raw_n is None:
+            break
+        page_norm = normalize(raw_n)
+        if not page_norm["documents"]:
+            break
+        norm["documents"].extend(page_norm["documents"])
+        norm["pages_fetched"] += 1
+        fetched = len(norm["documents"])
+        next_page += 1
+
+    return norm
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -544,21 +620,30 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    if args.raw and args.alle_seiten:
+        sys.stderr.write(
+            "Fehler: --raw und --alle-seiten sind nicht kombinierbar "
+            "(Roh-JSON ist immer Single-Page-Output der API).\n"
+        )
+        return 2
+
     norm_original = None
     if args.norm:
         args.norm, norm_original = normalize_norm(args.norm)
 
-    url = build_url(args)
-    raw = fetch_with_retries(url, args)
-    if raw is None:
-        return 1
-
     if args.raw:
+        url = build_url(args)
+        raw = fetch_with_retries(url, args)
+        if raw is None:
+            return 1
         json.dump(raw, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
         return 0
 
-    norm = normalize(raw)
+    norm = fetch_pages_normalized(args)
+    if norm is None:
+        return 1
+
     if norm_original is not None:
         norm["norm_normalized"] = {"from": norm_original, "to": args.norm}
 
