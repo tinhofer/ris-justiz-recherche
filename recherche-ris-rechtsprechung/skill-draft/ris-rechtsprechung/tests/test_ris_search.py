@@ -15,12 +15,15 @@ Pure stdlib + unittest, no Pip dependency.
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import sys
 import time
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 SCRIPT_DIR = HERE.parent / "scripts"
@@ -355,6 +358,222 @@ class TestWebsearchQueryBuilder(unittest.TestCase):
                 )
                 return
         self.skipTest("No JW-prefixed result on first page; cannot assert mapping.")
+
+
+class TestBuildUrlSortDefault(unittest.TestCase):
+    def _build(self, *extra):
+        argv = ["--applikation", "Justiz", "--suchworte", "x"] + list(extra)
+        return ris_search.build_url(ris_search.parse_args(argv))
+
+    def test_default_is_datum_descending(self):
+        url = self._build()
+        self.assertIn("Sortierung=Datum", url)
+        self.assertIn("SortDirection=Descending", url)
+
+    def test_explicit_sortierung_overrides_default(self):
+        url = self._build("--sortierung", "Relevanz")
+        self.assertIn("Sortierung=Relevanz", url)
+        # Wenn der User Sortierung explizit setzt, soll der Default-
+        # Sort-Direction NICHT zusaetzlich gesetzt werden.
+        self.assertNotIn("SortDirection=", url)
+
+    def test_explicit_sort_direction_only(self):
+        url = self._build("--sort-direction", "Ascending")
+        self.assertIn("SortDirection=Ascending", url)
+        self.assertNotIn("Sortierung=Datum", url)
+
+
+class TestFetchPagesNormalizedAutoPagination(unittest.TestCase):
+    def _args(self, **kwargs):
+        argv = ["--applikation", "Justiz", "--suchworte", "x",
+                "--retries", "0", "--retry-sleep", "0",
+                "--pause-pagination", "0"]
+        for k, v in kwargs.items():
+            flag = f"--{k.replace('_', '-')}"
+            if v is True:
+                argv.append(flag)
+            else:
+                argv.extend([flag, str(v)])
+        return ris_search.parse_args(argv)
+
+    def _page(self, total: int, docs: list[dict], page_no: int, page_size: int = 10):
+        return {
+            "OgdSearchResult": {
+                "OgdDocumentResults": {
+                    "Hits": {
+                        "#text": str(total),
+                        "@pageNumber": str(page_no),
+                        "@pageSize": str(page_size),
+                    },
+                    "OgdDocumentReference": [
+                        {"Data": {"Metadaten": {
+                            "Technisch": {"ID": d["id"], "Applikation": "Justiz"},
+                            "Allgemein": {"DokumentUrl": d.get("url")},
+                            "Judikatur": {},
+                        }}}
+                        for d in docs
+                    ],
+                }
+            }
+        }
+
+    def test_single_page_when_alle_seiten_off(self):
+        args = self._args()
+        page1 = self._page(7, [{"id": f"JJT_a_{i}_000"} for i in range(7)], 1)
+        with patch.object(ris_search, "fetch_with_retries", return_value=page1) as m:
+            result = ris_search.fetch_pages_normalized(args)
+        self.assertEqual(m.call_count, 1)
+        self.assertEqual(len(result["documents"]), 7)
+        self.assertNotIn("pages_fetched", result)
+
+    def test_alle_seiten_aggregates_until_total_reached(self):
+        args = self._args(alle_seiten=True, max_seiten=5, pro_seite="Ten")
+        # 10 + 10 + 5 = 25, total = 25 → should stop after 3 pages
+        pages = [
+            self._page(25, [{"id": f"JJT_p1_{i}_000"} for i in range(10)], 1, 10),
+            self._page(25, [{"id": f"JJT_p2_{i}_000"} for i in range(10)], 2, 10),
+            self._page(25, [{"id": f"JJT_p3_{i}_000"} for i in range(5)], 3, 10),
+        ]
+        with patch.object(ris_search, "fetch_with_retries", side_effect=pages) as m:
+            result = ris_search.fetch_pages_normalized(args)
+        self.assertEqual(m.call_count, 3)
+        self.assertEqual(result["pages_fetched"], 3)
+        self.assertEqual(len(result["documents"]), 25)
+
+    def test_alle_seiten_capped_by_max_seiten(self):
+        args = self._args(alle_seiten=True, max_seiten=2, pro_seite="Ten")
+        pages = [
+            self._page(100, [{"id": f"JJT_p1_{i}_000"} for i in range(10)], 1, 10),
+            self._page(100, [{"id": f"JJT_p2_{i}_000"} for i in range(10)], 2, 10),
+            # Sollte gar nicht abgerufen werden (Cap = 2)
+            self._page(100, [{"id": f"JJT_p3_{i}_000"} for i in range(10)], 3, 10),
+        ]
+        with patch.object(ris_search, "fetch_with_retries", side_effect=pages) as m:
+            result = ris_search.fetch_pages_normalized(args)
+        self.assertEqual(m.call_count, 2)
+        self.assertEqual(result["pages_fetched"], 2)
+        self.assertEqual(len(result["documents"]), 20)
+
+    def test_alle_seiten_stops_on_empty_page(self):
+        args = self._args(alle_seiten=True, max_seiten=5, pro_seite="Ten")
+        pages = [
+            self._page(15, [{"id": f"JJT_p1_{i}_000"} for i in range(10)], 1, 10),
+            self._page(15, [], 2, 10),  # leere Seite
+        ]
+        with patch.object(ris_search, "fetch_with_retries", side_effect=pages) as m:
+            result = ris_search.fetch_pages_normalized(args)
+        self.assertEqual(m.call_count, 2)
+        self.assertEqual(result["pages_fetched"], 1)
+        self.assertEqual(len(result["documents"]), 10)
+
+
+class TestRenderMarkdownPagination(unittest.TestCase):
+    def test_header_reflects_multi_page_aggregation(self):
+        result = {
+            "total_hits": 25, "page": 1, "page_size": 10, "pages_fetched": 3,
+            "documents": [],
+        }
+        out = ris_search.render_markdown(result)
+        self.assertIn("**Treffer:** 25", out)
+        self.assertIn("Seiten 1–3 geholt", out)
+
+
+class TestAttribution(unittest.TestCase):
+    def test_normalize_includes_attribution(self):
+        result = ris_search.normalize({"OgdSearchResult": {"OgdDocumentResults": {}}})
+        self.assertIn("attribution", result)
+        self.assertIn("CC BY 4.0", result["attribution"])
+        self.assertIn("RIS", result["attribution"])
+
+    def test_render_markdown_appends_attribution_footer(self):
+        result = {
+            "total_hits": 0, "page": 1, "page_size": 10,
+            "documents": [],
+            "attribution": ris_search.ATTRIBUTION_TEXT,
+        }
+        out = ris_search.render_markdown(result)
+        self.assertIn("CC BY 4.0", out)
+        self.assertIn("Bundeskanzleramt", out)
+        self.assertIn("Bundes-/Landesgesetzblatt", out)
+        # Footer steht am Ende, nach dem Trenner
+        self.assertTrue(out.rstrip().endswith("Landesgesetzblatt._"),
+                        f"Attribution must be the final line; got tail: {out[-200:]!r}")
+
+    def test_render_markdown_falls_back_to_default_attribution(self):
+        # Wenn das Result-Dict keine 'attribution' enthaelt (z. B. aus
+        # aelterem Code-Pfad), faellt render_markdown auf den Modul-Default
+        # zurueck — die Lizenz darf nie aus dem Output verschwinden.
+        result = {"total_hits": 0, "page": 1, "page_size": 10, "documents": []}
+        out = ris_search.render_markdown(result)
+        self.assertIn("CC BY 4.0", out)
+
+
+def _http_error(code: int, body: bytes = b"") -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url="http://x",
+        code=code,
+        msg="err",
+        hdrs=None,
+        fp=io.BytesIO(body),
+    )
+
+
+class TestFetchWithRetriesErrorHandling(unittest.TestCase):
+    """4xx werden nicht retried, 5xx + Netzfehler schon."""
+
+    def _args(self, retries: int = 2):
+        return ris_search.parse_args([
+            "--applikation", "Justiz", "--suchworte", "x",
+            "--retries", str(retries), "--retry-sleep", "0",
+            "--timeout", "1",
+        ])
+
+    def test_http_400_is_not_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(400, b"Missing parameter")) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1, "HTTP 400 must not retry")
+        self.assertIn("HTTP 400", err.getvalue())
+        self.assertIn("Missing parameter", err.getvalue())
+
+    def test_http_404_is_not_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(404)) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1)
+
+    def test_http_500_is_retried_until_exhausted(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(500)) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1 + args.retries)
+
+    def test_url_error_is_retried(self):
+        args = self._args(retries=2)
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=urllib.error.URLError("net down")) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertIsNone(result)
+        self.assertEqual(m.call_count, 1 + args.retries)
+
+    def test_eventual_success_after_transient_failure(self):
+        args = self._args(retries=2)
+        seq = [urllib.error.URLError("flap"), {"OgdSearchResult": {}}]
+        with patch.object(ris_search, "http_get_json", side_effect=seq) as m, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            result = ris_search.fetch_with_retries("http://x", args)
+        self.assertEqual(result, {"OgdSearchResult": {}})
+        self.assertEqual(m.call_count, 2)
 
 
 if __name__ == "__main__":

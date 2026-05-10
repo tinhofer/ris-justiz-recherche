@@ -1,6 +1,6 @@
 ---
 name: ris-rechtsprechung
-description: Österreichische Rechtsprechung über die offene RIS-API (data.bka.gv.at v2.6) abfragen — OGH, OLG, LG, BG, VfGH, VwGH, BVwG, LVwG, DSB, GBK u. a. Liefert pro Treffer Metadaten (Geschäftszahl, Entscheidungsdatum, Leitsatz) und einen Direkt-Link in das RIS. TRIGGER bei Fragen wie "Gibt es OGH-Judikatur zu §1319a ABGB?", "Verfassungsgerichtshof Erkenntnis G 12/2020", "Aktuelle BVwG-Asylentscheidungen zu Afghanistan", "Mietzinsminderung OGH 2023".
+description: Österreichische Rechtsprechung über die offene RIS-API (data.bka.gv.at v2.6) thematisch durchsuchen — OGH, OLG, LG, BG, VfGH, VwGH, BVwG, LVwG, DSB, GBK u. a. Liefert pro Treffer Metadaten (Geschäftszahl, Entscheidungsdatum, Leitsatz) und einen Direkt-Link in das RIS. TRIGGER bei thematischen Fragen wie "Gibt es OGH-Judikatur zu Mietzinsminderung in der Pandemie?", "Aktuelle BVwG-Entscheidungen zu Afghanistan-Asyl", "Was sagt der VfGH zur Versammlungsfreiheit seit 2020?". NICHT TRIGGERN für gezielte Lookups einer bekannten Geschäftszahl oder Rechtssatznummer — das ist im RIS-Web-Frontend schneller.
 ---
 
 # Skill: RIS Rechtsprechung (Österreich)
@@ -15,16 +15,34 @@ Landesrecht sind nicht enthalten.
 
 ## Wann diesen Skill anwenden
 
-Bei jeder Anfrage, in der konkrete österreichische Judikatur gesucht wird:
-- nach Geschäftszahl / Aktenzeichen
-- nach Norm (Format `{Gesetzeskürzel} §{Paragraph}`, z. B. `ABGB §1319a`)
-- nach Stichworten / Schlagworten
-- nach Zeitraum (`EntscheidungsdatumVon`/`Bis`)
-- nach Rechtssatz-Nummer (z. B. `RS0123456`)
+**Hauptpfad — thematische / explorative Recherche** im Chat:
+- nach Stichworten / Schlagworten (`--suchworte`, `--schlagworte`)
+- in einem bestimmten Zeitraum (`--von` / `--bis`)
+- bei einer bestimmten Gerichtsbarkeit (`--applikation`)
+
+Beispiele, die diesen Skill triggern:
+- „Gibt es OGH-Judikatur zu Mietzinsminderung in der Pandemie?"
+- „Aktuelle BVwG-Entscheidungen zu Afghanistan-Asyl seit 2023"
+- „Was sagt der VfGH zur Versammlungsfreiheit?"
+
+**Sekundärpfade** (technisch unterstützt, aber meist im RIS-Web-Frontend
+schneller — nur nutzen, wenn der User explizit darum bittet oder die
+Suche aus dem Chat-Kontext heraus eindeutig per Skript schneller geht):
+- Geschäftszahl-Lookup (`--geschaeftszahl`)
+- Norm-Suche (`--norm "ABGB §1319a"`)
+- Rechtssatznummer-Lookup (`--rechtssatznummer RS0123456`)
+
+**Norm-Suche → Rechtssätze**: bei reiner `--norm`-Suche (ohne
+`--suchworte`) liefert die OGD-API per Default überwiegend
+**Rechtssätze**, kaum Volltext-Entscheidungen — Rechtssätze sind im
+Norm-Index hinterlegt, Entscheidungstexte erst über die zusätzlichen
+Flags `SucheNachRechtssatz` / `SucheNachText`. Das Skript sendet diese
+Flags bewusst nur bei `--suchworte`-Suchen, weil bei reiner
+Norm-Recherche Rechtssätze i. d. R. die gewollte Trefferart sind.
 
 Nicht anwenden, wenn:
 - die Frage rein dogmatisch / rechtspolitisch ist, ohne Bezug zu einer
-  konkreten Entscheidung (z. B. "Was sagt die Lehre zu §..." → Kommentar,
+  konkreten Entscheidung (z. B. „Was sagt die Lehre zu §..." → Kommentar,
   nicht RIS),
 - Bundes-/Landesrecht gemeint ist (Gesetzestext, nicht Rechtsprechung),
 - nach EuGH/EGMR-Urteilen gefragt wird (RIS enthält nur österreichische
@@ -65,7 +83,7 @@ Plus **mindestens einer** dieser Suchparameter (sonst HTTP 400):
 
 | Parameter | Beispiel | Hinweis |
 |---|---|---|
-| `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT |
+| `Suchworte` | `Mietzinsminderung` | URL-encoden; `*` nur am Wortende; AND/OR/NOT. **OGD-API-Einschränkung**: nur _ein_ Platzhalter pro Wort (Web-Frontend toleriert mehrere). |
 | `Geschaeftszahl` | `5Ob234/20b` | exakte Aktenzeichen-Suche |
 | `Norm` | `ABGB §1319a` | **Format: `{Gesetzeskürzel} §{Paragraph}`** (kanonische Zitierform) — andere Reihenfolgen wie `1319a ABGB` liefern fast keine Treffer. Fehlt nur das `§`-Zeichen (`ArbVG 105`), ergänzt das Skript es automatisch und schreibt einen Hinweis in den Output. Für EU-Verordnungen (z. B. DSGVO) ist der `Norm`-Index unzuverlässig; lieber Volltextsuche via `Suchworte`. |
 | `Rechtssatznummer` | `RS0123456` | bei OGH-Rechtssatz-Suche |
@@ -82,11 +100,21 @@ Optional:
 - `ImRisSeit` ∈ {`Undefined`, `EinerWoche`, `EinemMonat`, `DreiMonaten`, `SechsMonaten`, `EinemJahr`}
 - `Sortierung` ∈ {`Datum`, `Geschaeftszahl`, `Relevanz`} — die API toleriert
   weitere Werte; nur die hier gelisteten sind in den RIS-Handbüchern dokumentiert.
+  **Skript-Default**: setzt das Skript weder `--sortierung` noch
+  `--sort-direction`, sortiert es nach `Datum`/`Descending` (im
+  Chat-Kontext meist gewollt — „aktuelle Judikatur zu …"). Der
+  API-Default `Relevanz` ist mit `--sortierung Relevanz` zurückzuholen.
 - `SortDirection` ∈ {`Ascending`, `Descending`}
 
 Pagination:
 - `DokumenteProSeite` ∈ {`Ten`, `Twenty`, `Fifty`, `OneHundred`} — Default `Twenty`
-- `Seitennummer` (1-basiert)
+- `Seitennummer` (1-basiert) — bei `--alle-seiten` der Einstiegspunkt
+- **Auto-Pagination**: `--alle-seiten` holt mehrere Seiten automatisch,
+  bis Treffer erschöpft oder `--max-seiten N` (Default 5) erreicht.
+  RIS-konforme Pause zwischen Seiten konfigurierbar via
+  `--pause-pagination` (Default 1.5 s). Default-Cap: 5 × 20 = 100
+  Treffer. Für breite Themen-Recherchen mit `--pro-seite Fifty
+  --alle-seiten --max-seiten 5` bis zu 250 Treffer auf einmal.
 
 ## Empfohlenes Vorgehen
 
@@ -103,14 +131,15 @@ JSON-Parsing und Rendering in einem Aufruf.
    ausführendes Modell weißt, in welcher Umgebung Du läufst.
 
    **Generisches Aufrufmuster** — `cd` in den Skill-Ordner, dann relativ
-   aufrufen:
+   aufrufen. Standard-Chat-Recherche (Themensuche mit Auto-Pagination):
    ```bash
    cd <skill-folder> && python scripts/ris_search.py \
      --applikation Justiz \
      --suchworte "Mietzinsminderung" \
      --von 2020-01-01 --bis 2024-12-31 \
-     --pro-seite Twenty --seite 1
+     --pro-seite Fifty --alle-seiten --max-seiten 3
    ```
+   Liefert bis zu 150 Treffer, sortiert nach Datum absteigend (Default).
 
    **Python-Aufruf je Umgebung** — probiere in dieser Reihenfolge:
    `python` → `python3` → `py -3`. Üblicherweise:
@@ -343,6 +372,30 @@ ris-rechtsprechung/
 
 Voraussetzung: Python ≥ 3.9 in der ausführenden Umgebung. Keine
 Pip-Pakete nötig.
+
+## Lizenz, Namensnennung, Disclaimer
+
+Die über die OGD-Schnittstelle bezogenen RIS-Daten stehen unter
+**Creative Commons Namensnennung 4.0 International (CC BY 4.0)**.
+Bei Wiedergabe ist die Quelle zu nennen — das Skript hängt deshalb
+an jeden Markdown-Output automatisch eine Attribution-Zeile
+(`Quelle: RIS, Bundeskanzleramt — CC BY 4.0`) und im JSON-Output ein
+`attribution`-Feld.
+
+**Rechtlich verbindlich** ist laut Bundeskanzleramt **ausschließlich
+der Wortlaut im Bundesgesetzblatt** (Applikation
+„Bundesgesetzblatt authentisch") bzw. in den jeweiligen
+Landesgesetzblättern. Der OGD-Datenbestand wird ohne Gewähr für
+Richtigkeit, Aktualität oder Vollständigkeit bereitgestellt. Wenn Du
+RIS-Treffer im Chat ausgibst, formuliere entsprechend — die
+zurückgelieferten Texte sind **Recherchehilfe, keine authentische
+Rechtsquelle**.
+
+**Massenabfragen**: ein durchschnittlicher Skill-Aufruf (bis 5 Seiten
+× 100 Treffer) ist unbedenklich. Wer den Skill systematisch über den
+Tag verteilt nutzt oder `--max-seiten` deutlich hochdreht, sollte das
+RIS-Team unter `ris.it@bka.gv.at` vorab informieren (siehe OGD-FAQ),
+um nicht versehentlich als DDoS-Verkehr klassifiziert zu werden.
 
 ## Quellen
 

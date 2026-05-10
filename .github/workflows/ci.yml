@@ -1,0 +1,40 @@
+name: CI
+
+# Schneller Regressions-Check bei jedem Push/PR auf den
+# RIS-Skill-Code: nur die reinen Unit-Tests, keine Live-API-Calls
+# (RIS_SKIP_LIVE=1). Die Live-Smoke-Tests laufen weiterhin sonntags
+# via .github/workflows/ris-smoke-test.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    defaults:
+      run:
+        working-directory: recherche-ris-rechtsprechung/skill-draft/ris-rechtsprechung
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run unit tests (offline)
+        env:
+          RIS_SKIP_LIVE: '1'
+        run: python -m unittest tests.test_ris_search -v
