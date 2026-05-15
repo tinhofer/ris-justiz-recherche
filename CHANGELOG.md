@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/version`-Diagnose-Ping nach erschöpften Retries (5xx / Netzfehler,
+  *nicht* 4xx): `check_version_endpoint()` + `_emit_unreachable_diagnosis()`
+  in `ris_search.py`. Antwortet `/version` mit 200, schreibt das Skript
+  „RIS-API erreichbar (Version X, Y ms), aber /Judikatur scheitert — Query
+  prüfen"; antwortet `/version` ebenfalls nicht, „RIS-API komplett nicht
+  erreichbar". Hilft, im Fehlerfall zwischen API-Ausfall und
+  Query-Problem zu unterscheiden.
+- Feld-Audit gegen den `SoapResponseMapper` von shrinkwrap-legal-api:
+  `veroeffentlicht`, `geaendert`, `ecli`, `api_dokumenttyp`,
+  `schlagworte`, `entscheidungsart`, `anmerkung`, `fundstelle`,
+  `rechtsgebiete` werden **konditional** ins normalisierte Output-Dict
+  aufgenommen — nur, wenn die API einen nicht-leeren Wert liefert. Das
+  umgeht die in #18 dokumentierte Falle (ECLI/Rechtsgebiet waren in
+  alten Treffern leer/unzuverlässig) automatisch: Treffer ohne Wert
+  zeigen das Feld nicht. Markdown rendert die Audit-Zeilen (Heading
+  ergänzt um `— {Entscheidungsart}`; eigene Zeilen für Rechtsgebiet,
+  Schlagworte, Fundstelle, ECLI, Anmerkung).
 - CC-BY-4.0-Namensnennung am Ende jedes Markdown-Outputs und als
   `attribution`-Feld im JSON-Output. RIS-OGD-Daten stehen unter
   CC BY 4.0; bei Wiedergabe ist die Quelle zu nennen — der Footer

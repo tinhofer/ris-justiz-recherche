@@ -143,7 +143,18 @@ skill-draft/ris-rechtsprechung/
 Pip-Abhängigkeiten. Es validiert Pflichtparameter, baut die Anfrage,
 parst die Antwort und liefert wahlweise Markdown, normalisiertes JSON
 (`--json`) oder die Roh-API-Antwort (`--raw`). Bei Netzfehlern werden
-zwei automatische Retries mit Backoff durchgeführt.
+zwei automatische Retries mit Backoff durchgeführt; sind diese
+erschöpft, pingt das Skript zusätzlich `/version` und unterscheidet
+im stderr-Output zwischen „RIS-API komplett down" und „/Judikatur
+scheitert spezifisch — Query prüfen".
+
+Das normalisierte Output-Dict enthält die im shrinkwrap-Mapper
+extrahierten Audit-Felder (`veroeffentlicht`, `geaendert`, `ecli`,
+`api_dokumenttyp`, `schlagworte`, `entscheidungsart`, `anmerkung`,
+`fundstelle`, `rechtsgebiete`) — jeweils nur dann, wenn die API
+einen nicht-leeren Wert liefert. So bleibt das JSON kompakt, und der
+in Issue #18 dokumentierte Befund („ECLI/Rechtsgebiet in vielen
+Treffern leer") führt nicht zu „null-Feld-Rauschen".
 
 ## Festgelegte Designentscheidungen
 

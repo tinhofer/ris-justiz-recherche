@@ -550,8 +550,11 @@ class TestFetchWithRetriesErrorHandling(unittest.TestCase):
 
     def test_http_500_is_retried_until_exhausted(self):
         args = self._args(retries=2)
+        # Diagnose-Ping nach erschoepften Retries wegmocken — er ruft
+        # sonst zusaetzlich http_get_json gegen /version auf.
         with patch.object(ris_search, "http_get_json",
                           side_effect=_http_error(500)) as m, \
+             patch.object(ris_search, "_emit_unreachable_diagnosis"), \
              patch.object(sys, "stderr", new_callable=io.StringIO):
             result = ris_search.fetch_with_retries("http://x", args)
         self.assertIsNone(result)
@@ -561,6 +564,7 @@ class TestFetchWithRetriesErrorHandling(unittest.TestCase):
         args = self._args(retries=2)
         with patch.object(ris_search, "http_get_json",
                           side_effect=urllib.error.URLError("net down")) as m, \
+             patch.object(ris_search, "_emit_unreachable_diagnosis"), \
              patch.object(sys, "stderr", new_callable=io.StringIO):
             result = ris_search.fetch_with_retries("http://x", args)
         self.assertIsNone(result)
@@ -574,6 +578,253 @@ class TestFetchWithRetriesErrorHandling(unittest.TestCase):
             result = ris_search.fetch_with_retries("http://x", args)
         self.assertEqual(result, {"OgdSearchResult": {}})
         self.assertEqual(m.call_count, 2)
+
+
+class TestCheckVersionEndpoint(unittest.TestCase):
+    def test_returns_reachable_with_version_text(self):
+        with patch.object(ris_search, "http_get_json",
+                          return_value={"Version": "2.6.42"}):
+            reachable, ver, latency = ris_search.check_version_endpoint()
+        self.assertTrue(reachable)
+        self.assertEqual(ver, "2.6.42")
+        self.assertGreaterEqual(latency, 0)
+
+    def test_returns_reachable_without_version_key(self):
+        with patch.object(ris_search, "http_get_json", return_value={}):
+            reachable, ver, latency = ris_search.check_version_endpoint()
+        self.assertTrue(reachable)
+        self.assertIsNone(ver)
+        self.assertGreaterEqual(latency, 0)
+
+    def test_unreachable_on_url_error(self):
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=urllib.error.URLError("down")):
+            reachable, ver, latency = ris_search.check_version_endpoint()
+        self.assertFalse(reachable)
+        self.assertIsNone(ver)
+        self.assertEqual(latency, -1)
+
+    def test_unreachable_on_http_error(self):
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(503)):
+            reachable, _, _ = ris_search.check_version_endpoint()
+        self.assertFalse(reachable)
+
+    def test_emit_diagnosis_when_api_reachable(self):
+        with patch.object(ris_search, "check_version_endpoint",
+                          return_value=(True, "2.6.42", 87)), \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            ris_search._emit_unreachable_diagnosis("http://x")
+        out = err.getvalue()
+        self.assertIn("RIS-API erreichbar", out)
+        self.assertIn("2.6.42", out)
+        self.assertIn("/Judikatur scheitert", out)
+
+    def test_emit_diagnosis_when_api_down(self):
+        with patch.object(ris_search, "check_version_endpoint",
+                          return_value=(False, None, -1)), \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            ris_search._emit_unreachable_diagnosis("http://x")
+        out = err.getvalue()
+        self.assertIn("komplett nicht erreichbar", out)
+
+    def test_diagnosis_only_runs_after_5xx_exhausted_not_on_4xx(self):
+        """4xx terminiert sofort — kein Diagnose-Ping."""
+        args = ris_search.parse_args([
+            "--applikation", "Justiz", "--suchworte", "x",
+            "--retries", "2", "--retry-sleep", "0", "--timeout", "1",
+        ])
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(400, b"bad")), \
+             patch.object(ris_search, "check_version_endpoint") as version_mock, \
+             patch.object(sys, "stderr", new_callable=io.StringIO):
+            ris_search.fetch_with_retries("http://x", args)
+        version_mock.assert_not_called()
+
+    def test_diagnosis_runs_after_5xx_exhausted(self):
+        args = ris_search.parse_args([
+            "--applikation", "Justiz", "--suchworte", "x",
+            "--retries", "1", "--retry-sleep", "0", "--timeout", "1",
+        ])
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=_http_error(500)), \
+             patch.object(ris_search, "check_version_endpoint",
+                          return_value=(True, "2.6.42", 50)) as version_mock, \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            ris_search.fetch_with_retries("http://x", args)
+        version_mock.assert_called_once()
+        self.assertIn("RIS-API erreichbar", err.getvalue())
+
+    def test_diagnosis_runs_after_network_error_exhausted(self):
+        args = ris_search.parse_args([
+            "--applikation", "Justiz", "--suchworte", "x",
+            "--retries", "1", "--retry-sleep", "0", "--timeout", "1",
+        ])
+        with patch.object(ris_search, "http_get_json",
+                          side_effect=urllib.error.URLError("down")), \
+             patch.object(ris_search, "check_version_endpoint",
+                          return_value=(False, None, -1)) as version_mock, \
+             patch.object(sys, "stderr", new_callable=io.StringIO) as err:
+            ris_search.fetch_with_retries("http://x", args)
+        version_mock.assert_called_once()
+        self.assertIn("komplett nicht erreichbar", err.getvalue())
+
+
+def _make_doc(judikatur_overrides=None, allgemein_overrides=None,
+              technisch_overrides=None):
+    """Hilfs-Builder fuer Roh-API-Treffer (ein OgdDocumentReference)."""
+    technisch = {"ID": "JJT_20240101_OGH0002_0050OB00100_2400000_000",
+                 "Applikation": "Justiz", "Organ": "OGH"}
+    technisch.update(technisch_overrides or {})
+    allgemein = {"DokumentUrl": "https://ris.bka.gv.at/..."}
+    allgemein.update(allgemein_overrides or {})
+    judikatur: dict = {}
+    judikatur.update(judikatur_overrides or {})
+    return {
+        "OgdSearchResult": {
+            "OgdDocumentResults": {
+                "Hits": {"#text": "1", "@pageNumber": "1", "@pageSize": "10"},
+                "OgdDocumentReference": [{"Data": {"Metadaten": {
+                    "Technisch": technisch,
+                    "Allgemein": allgemein,
+                    "Judikatur": judikatur,
+                }}}],
+            }
+        }
+    }
+
+
+class TestShrinkwrapFieldAudit(unittest.TestCase):
+    """Konditionale Aufnahme der shrinkwrap-Audit-Felder.
+
+    Wichtig (Issue #18): Felder duerfen NUR im Output erscheinen, wenn
+    die API einen nicht-leeren Wert geliefert hat — sonst hat #18 sie
+    schon einmal aus dem Output entfernt mit der Begruendung "leer
+    oder unzuverlaessig".
+    """
+
+    def test_no_extra_fields_when_api_empty(self):
+        doc = ris_search.normalize(_make_doc())["documents"][0]
+        for key in ("veroeffentlicht", "geaendert", "ecli",
+                    "api_dokumenttyp", "schlagworte", "entscheidungsart",
+                    "anmerkung", "fundstelle", "rechtsgebiete"):
+            self.assertNotIn(key, doc,
+                             f"empty {key} must not appear in output dict")
+
+    def test_veroeffentlicht_and_geaendert_extracted(self):
+        doc = ris_search.normalize(_make_doc(
+            allgemein_overrides={"Veroeffentlicht": "2024-02-15",
+                                 "Geaendert": "2024-03-01"},
+        ))["documents"][0]
+        self.assertEqual(doc["veroeffentlicht"], "2024-02-15")
+        self.assertEqual(doc["geaendert"], "2024-03-01")
+
+    def test_ecli_extracted(self):
+        doc = ris_search.normalize(_make_doc(
+            judikatur_overrides={
+                "EuropeanCaseLawIdentifier": "ECLI:AT:OGH0002:2024:0050OB00100.24X.0101.000",
+            },
+        ))["documents"][0]
+        self.assertIn("ecli", doc)
+        self.assertTrue(doc["ecli"].startswith("ECLI:AT:OGH"))
+
+    def test_api_dokumenttyp_extracted(self):
+        doc = ris_search.normalize(_make_doc(
+            judikatur_overrides={"Dokumenttyp": "Entscheidungstext"},
+        ))["documents"][0]
+        self.assertEqual(doc["api_dokumenttyp"], "Entscheidungstext")
+
+    def test_schlagworte_extracted_as_list(self):
+        doc = ris_search.normalize(_make_doc(
+            judikatur_overrides={"Schlagworte": {"item": ["Miete", "Kuendigung"]}},
+        ))["documents"][0]
+        self.assertEqual(doc["schlagworte"], ["Miete", "Kuendigung"])
+
+    def test_court_specific_fields_from_justiz_block(self):
+        doc = ris_search.normalize(_make_doc(
+            judikatur_overrides={"Justiz": {
+                "Gericht": "OGH",
+                "Entscheidungsart": "Beschluss",
+                "Anmerkung": "Veroeffentlicht: SZ 2024/15.",
+                "Fundstelle": "SZ 2024/15",
+                "Rechtsgebiete": {"item": ["Zivilrecht", "Mietrecht"]},
+            }},
+        ))["documents"][0]
+        self.assertEqual(doc["entscheidungsart"], "Beschluss")
+        self.assertIn("anmerkung", doc)
+        self.assertEqual(doc["fundstelle"], "SZ 2024/15")
+        self.assertEqual(doc["rechtsgebiete"], ["Zivilrecht", "Mietrecht"])
+
+    def test_entscheidungsart_works_for_vfgh_block(self):
+        doc = ris_search.normalize(_make_doc(
+            technisch_overrides={"ID": "JFT_20240101_19G00012_2400_00",
+                                 "Applikation": "Vfgh", "Organ": "VfGH"},
+            judikatur_overrides={"Vfgh": {"Gericht": "VfGH",
+                                          "Entscheidungsart": "Erkenntnis"}},
+        ))["documents"][0]
+        self.assertEqual(doc["entscheidungsart"], "Erkenntnis")
+
+
+class TestRenderMarkdownAuditFields(unittest.TestCase):
+    """Audit-Felder werden im Markdown-Output nur bei Werten angezeigt."""
+
+    def _doc(self, **overrides):
+        base = {
+            "dokumentnummer": "JJT_…", "applikation": "Justiz",
+            "gericht": "OGH", "doc_type": "Volltext",
+            "rechtssatznummer": None, "geschaeftszahl": "5Ob100/24x",
+            "geschaeftszahlen": ["5Ob100/24x"],
+            "entscheidungsdatum": "2024-01-01",
+            "leitsatz": None, "normen": [], "fachgebiete": [],
+            "entscheidungstexte_count": 0,
+            "link": "https://ris.bka.gv.at/x", "volltext_url": None,
+            "content_urls": {},
+        }
+        base.update(overrides)
+        return base
+
+    def _render(self, doc):
+        return ris_search.render_markdown({
+            "total_hits": 1, "page": 1, "page_size": 10, "documents": [doc],
+        })
+
+    def test_entscheidungsart_appears_in_heading(self):
+        out = self._render(self._doc(entscheidungsart="Beschluss"))
+        self.assertIn("— Beschluss", out)
+
+    def test_no_dash_in_heading_when_no_entscheidungsart(self):
+        out = self._render(self._doc())
+        heading = next(line for line in out.splitlines() if line.startswith("### "))
+        self.assertNotIn("—", heading)
+
+    def test_ecli_rendered_when_present(self):
+        out = self._render(self._doc(ecli="ECLI:AT:OGH0002:2024:0050OB00100.24X.0101.000"))
+        self.assertIn("**ECLI:**", out)
+        self.assertIn("ECLI:AT:OGH0002", out)
+
+    def test_rechtsgebiet_rendered_when_present(self):
+        out = self._render(self._doc(rechtsgebiete=["Zivilrecht", "Mietrecht"]))
+        self.assertIn("**Rechtsgebiet:** Zivilrecht, Mietrecht", out)
+
+    def test_fundstelle_rendered_when_present(self):
+        out = self._render(self._doc(fundstelle="SZ 2024/15"))
+        self.assertIn("**Fundstelle:** SZ 2024/15", out)
+
+    def test_anmerkung_rendered_and_truncated(self):
+        long_note = "Sehr lange Anmerkung. " * 30
+        out = self._render(self._doc(anmerkung=long_note))
+        self.assertIn("_Anmerkung:_", out)
+        self.assertIn("...", out)
+
+    def test_schlagworte_rendered_when_present(self):
+        out = self._render(self._doc(schlagworte=["Miete", "Kuendigung"]))
+        self.assertIn("**Schlagworte:** Miete, Kuendigung", out)
+
+    def test_audit_field_keys_absent_when_doc_lacks_them(self):
+        out = self._render(self._doc())
+        for key in ("**ECLI:**", "**Rechtsgebiet:**", "**Fundstelle:**",
+                    "_Anmerkung:_", "**Schlagworte:**"):
+            self.assertNotIn(key, out, f"unexpected: {key}")
 
 
 if __name__ == "__main__":
