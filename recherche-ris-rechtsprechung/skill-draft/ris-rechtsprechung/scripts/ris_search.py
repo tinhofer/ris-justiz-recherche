@@ -28,6 +28,7 @@ import urllib.request
 from typing import Any
 
 BASE_URL = "https://data.bka.gv.at/ris/api/v2.6/Judikatur"
+VERSION_URL = "https://data.bka.gv.at/ris/api/v2.6/version"
 
 ATTRIBUTION_TEXT = (
     "Quelle: RIS, Bundeskanzleramt — CC BY 4.0 "
@@ -216,6 +217,57 @@ def _read_error_body(err: urllib.error.HTTPError, max_chars: int = 500) -> str:
     return body[:max_chars] + ("…" if len(body) > max_chars else "")
 
 
+def check_version_endpoint(timeout: float = 5.0) -> tuple[bool, str | None, int]:
+    """Diagnose-Ping gegen ``/version``.
+
+    Wird gerufen, nachdem ``/Judikatur`` nach allen Retries gescheitert
+    ist — und nur bei 5xx oder Netzfehlern. Bei 4xx wissen wir bereits,
+    dass die Anfrage selbst kaputt ist; ein zusätzlicher Ping bringt
+    keinen Erkenntnisgewinn.
+
+    Returns ``(reachable, version_text, latency_ms)``. ``version_text``
+    ist der erste Treffer eines plausiblen Version-Felds (``Version`` /
+    ``version``) oder ``None``; ``latency_ms`` ist gerundet, oder ``-1``
+    bei Fehlern.
+    """
+    started = time.monotonic()
+    try:
+        payload = http_get_json(VERSION_URL, timeout=timeout)
+    except (urllib.error.URLError, urllib.error.HTTPError,
+            TimeoutError, json.JSONDecodeError):
+        return False, None, -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    version_text: str | None = None
+    if isinstance(payload, dict):
+        for key in ("Version", "version", "ServiceVersion"):
+            if key in payload and payload[key]:
+                version_text = str(payload[key])
+                break
+    return True, version_text, elapsed_ms
+
+
+def _emit_unreachable_diagnosis(url: str) -> None:
+    """Schreibt nach Erschöpfung der Retries eine Diagnose nach stderr,
+    indem zusätzlich ``/version`` angepingt wird. So sieht der Anrufer,
+    ob die RIS-API insgesamt down ist oder nur ``/Judikatur``-Anfragen
+    scheitern (z. B. wegen Query-Encoding).
+    """
+    reachable, version_text, latency_ms = check_version_endpoint()
+    if reachable:
+        ver = f"Version {version_text}, " if version_text else ""
+        sys.stderr.write(
+            f"Diagnose: RIS-API erreichbar ({ver}{latency_ms} ms via /version), "
+            "aber /Judikatur scheitert — Query pruefen.\n"
+            f"URL: {url}\n"
+        )
+    else:
+        sys.stderr.write(
+            "Diagnose: RIS-API komplett nicht erreichbar — auch /version "
+            "antwortet nicht. Spaeter erneut versuchen.\n"
+            f"URL: {url}\n"
+        )
+
+
 def fetch_with_retries(url: str, args: argparse.Namespace) -> dict[str, Any] | None:
     """Hole JSON von der RIS-API mit linearem Backoff. None = Aufgabe.
 
@@ -224,6 +276,10 @@ def fetch_with_retries(url: str, args: argparse.Namespace) -> dict[str, Any] | N
     Antwort durch erneutes Senden derselben Anfrage nicht aendert. Wir
     geben stattdessen sofort eine sprechende Fehlermeldung aus —
     insbesondere fuer 400 erklaeren wir die typische Ursache.
+
+    Bei erschoepften Retries auf 5xx oder Netzfehlern fragt das Skript
+    zusaetzlich ``/version`` an, um zwischen "RIS-API down" und
+    "/Judikatur-Query scheitert spezifisch" zu unterscheiden.
     """
     for attempt in range(1 + args.retries):
         try:
@@ -251,12 +307,14 @@ def fetch_with_retries(url: str, args: argparse.Namespace) -> dict[str, Any] | N
                 f"RIS-API HTTP {e.code} nach {args.retries} Wiederholungen: "
                 f"{e.reason}\nURL: {url}\n"
             )
+            _emit_unreachable_diagnosis(url)
             return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
             if attempt < args.retries:
                 time.sleep(args.retry_sleep * (attempt + 1))
                 continue
             sys.stderr.write(f"RIS-Anfrage fehlgeschlagen: {e}\nURL: {url}\n")
+            _emit_unreachable_diagnosis(url)
             return None
     return None
 
@@ -339,6 +397,22 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         gz_alle = all_texts(jud.get("Geschaeftszahl"))
         ent_datum = first_text(jud.get("Entscheidungsdatum"))
 
+        # Veröffentlichungs-/Änderungsdatum aus Allgemein-Block. Beide
+        # sind organisatorische Metadaten der RIS-Pipeline, NICHT das
+        # Entscheidungsdatum.
+        veroeffentlicht = first_text(allgemein.get("Veroeffentlicht"))
+        geaendert = first_text(allgemein.get("Geaendert"))
+
+        # ECLI + API-eigene Dokumenttyp-Angabe. Beides wurde in #18
+        # entfernt mit der Begründung "leer oder unzuverlässig". Wir
+        # nehmen sie konditional wieder auf — wenn die API einen Wert
+        # liefert, taucht das Feld im Output auf, sonst nicht.
+        ecli = first_text(jud.get("EuropeanCaseLawIdentifier"))
+        api_dokumenttyp = first_text(jud.get("Dokumenttyp"))
+
+        # Schlagworte (Top-Level, anders als die hauseigenen Court-Blöcke)
+        schlagworte = all_texts(jud.get("Schlagworte"))
+
         # Gericht zuverlässig aus Technisch.Organ. Fallback auf Justiz.Gericht.
         gericht = tech.get("Organ") or first_text(jud.get("Gericht"))
 
@@ -351,6 +425,10 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         fachgebiete: list[str] = []
         rechtssatznummer: str | None = None
         entscheidungstexte: list[Any] = []
+        entscheidungsart: str | None = None
+        anmerkung: str | None = None
+        fundstelle: str | None = None
+        rechtsgebiete: list[str] = []
         for app_key in APPLIKATIONEN:
             block = jud.get(app_key) or {}
             if not isinstance(block, dict):
@@ -367,6 +445,18 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
                 entscheidungstexte = as_list(
                     (block.get("Entscheidungstexte") or {}).get("item")
                 )
+            # Court-spezifische Zusatzfelder (shrinkwrap-Mapper-Audit).
+            # Entscheidungsart kommt aus allen Court-Blöcken (Urteil /
+            # Beschluss / Erkenntnis); Anmerkung / Fundstelle /
+            # Rechtsgebiete sind nur im Justiz-Block belegt.
+            if not entscheidungsart and block.get("Entscheidungsart"):
+                entscheidungsart = first_text(block.get("Entscheidungsart"))
+            if not anmerkung and block.get("Anmerkung"):
+                anmerkung = first_text(block.get("Anmerkung"))
+            if not fundstelle and block.get("Fundstelle"):
+                fundstelle = first_text(block.get("Fundstelle"))
+            if not rechtsgebiete and block.get("Rechtsgebiete"):
+                rechtsgebiete = all_texts(block.get("Rechtsgebiete"))
 
         # Bei Rechtssatz-Dokumenten ist die "Geschaeftszahl" oben eine
         # verkettete Liste aller zitierenden Geschäftszahlen, und das
@@ -406,7 +496,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             if derived:
                 volltext_url = docnumber_to_html_url(derived)
 
-        docs.append({
+        doc: dict[str, Any] = {
             "dokumentnummer": docnr,
             "applikation": tech.get("Applikation"),
             "gericht": gericht,
@@ -422,7 +512,32 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             "link": link,
             "volltext_url": volltext_url,
             "content_urls": urls,
-        })
+        }
+        # Konditionale Zusatzfelder aus dem shrinkwrap-Audit: nur
+        # aufnehmen, wenn die API einen Wert geliefert hat. Damit
+        # entsteht kein "null-Feld-Rauschen" im JSON-Output, und der
+        # in #18 dokumentierte Befund "leer oder unzuverlässig" wird
+        # automatisch behandelt — Treffer ohne Wert zeigen das Feld
+        # einfach nicht.
+        if veroeffentlicht:
+            doc["veroeffentlicht"] = veroeffentlicht
+        if geaendert:
+            doc["geaendert"] = geaendert
+        if ecli:
+            doc["ecli"] = ecli
+        if api_dokumenttyp:
+            doc["api_dokumenttyp"] = api_dokumenttyp
+        if schlagworte:
+            doc["schlagworte"] = schlagworte
+        if entscheidungsart:
+            doc["entscheidungsart"] = entscheidungsart
+        if anmerkung:
+            doc["anmerkung"] = anmerkung
+        if fundstelle:
+            doc["fundstelle"] = fundstelle
+        if rechtsgebiete:
+            doc["rechtsgebiete"] = rechtsgebiete
+        docs.append(doc)
 
     return {
         "total_hits": total,
@@ -458,7 +573,10 @@ def render_markdown(result: dict[str, Any]) -> str:
                 type_label = f" [{d['doc_type']} {d['rechtssatznummer']}]"
             else:
                 type_label = f" [{d['doc_type']}]"
-        lines.append(f"### {i}. {court} {gz} vom {datum}{type_label}")
+        # Entscheidungsart (Urteil/Beschluss/Erkenntnis) hinter dem
+        # Doktyp-Label, wenn die API sie liefert.
+        art_label = f" — {d['entscheidungsart']}" if d.get("entscheidungsart") else ""
+        lines.append(f"### {i}. {court} {gz} vom {datum}{type_label}{art_label}")
         if d["leitsatz"]:
             ls = " ".join(d["leitsatz"].split())
             if len(ls) > 400:
@@ -468,6 +586,19 @@ def render_markdown(result: dict[str, Any]) -> str:
             lines.append(f"**Norm:** {', '.join(d['normen'])}")
         if d.get("fachgebiete"):
             lines.append(f"**Fachgebiet:** {', '.join(d['fachgebiete'])}")
+        if d.get("rechtsgebiete"):
+            lines.append(f"**Rechtsgebiet:** {', '.join(d['rechtsgebiete'])}")
+        if d.get("schlagworte"):
+            lines.append(f"**Schlagworte:** {', '.join(d['schlagworte'])}")
+        if d.get("fundstelle"):
+            lines.append(f"**Fundstelle:** {d['fundstelle']}")
+        if d.get("ecli"):
+            lines.append(f"**ECLI:** `{d['ecli']}`")
+        if d.get("anmerkung"):
+            anm = " ".join(d["anmerkung"].split())
+            if len(anm) > 300:
+                anm = anm[:297] + "..."
+            lines.append(f"_Anmerkung:_ {anm}")
         if d.get("volltext_url"):
             if d["link"]:
                 lines.append(f"- [Rechtssatz im RIS]({d['link']})")

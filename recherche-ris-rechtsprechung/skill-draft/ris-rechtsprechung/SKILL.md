@@ -230,7 +230,21 @@ _Leitsatz:_ ...
       "entscheidungstexte_count": 22,
       "link": "https://www.ris.bka.gv.at/Dokument.wxe?...JJR_..._007",
       "volltext_url": "https://www.ris.bka.gv.at/Dokument.wxe?...JJT_..._000",
-      "content_urls": { "html": "...", "pdf": "...", "xml": "...", "rtf": "..." }
+      "content_urls": { "html": "...", "pdf": "...", "xml": "...", "rtf": "..." },
+
+      // Konditionale Audit-Felder — nur vorhanden, wenn die API einen
+      // nicht-leeren Wert liefert. Erspart "null überall"-Rauschen und
+      // umgeht die Issue-#18-Falle (Felder, die in alten Treffern leer
+      // oder unzuverlässig sind, zeigen sich erst gar nicht).
+      "veroeffentlicht": "1986-11-05",   // Allgemein.Veroeffentlicht
+      "geaendert": "2024-09-02",         // Allgemein.Geaendert (letztes Update)
+      "ecli": "ECLI:AT:OGH0002:1986:0020OB00554.8600000.007",
+      "api_dokumenttyp": "Rechtssatz",   // API-eigene Doktyp-Angabe
+      "schlagworte": ["..."],            // Top-Level Judikatur.Schlagworte
+      "entscheidungsart": "Beschluss",   // Urteil / Beschluss / Erkenntnis
+      "anmerkung": "...",                // nur Justiz-Block
+      "fundstelle": "SZ 2024/15",        // nur Justiz-Block
+      "rechtsgebiete": ["Zivilrecht"]    // nur Justiz-Block
     }
   ]
 }
@@ -239,9 +253,27 @@ _Leitsatz:_ ...
 `doc_type` und `rechtssatznummer` sind nur bei OGH/VfGH/VwGH-Dokumenten
 zuverlässig gesetzt (`J{Court}{T|R}`-Konvention). Andere Applikationen
 (BVWG, LVWG, DSB u. a.) folgen der Konvention nicht; dort bleibt
-`doc_type = null`.
+`doc_type = null`. Wenn die API ein eigenes `Dokumenttyp`-Feld liefert,
+steht es zusätzlich in `api_dokumenttyp`.
 
 `--raw` gibt die unveränderte API-Antwort aus, falls du selbst parsen willst.
+
+### Audit-Felder im Markdown-Output
+
+Sind im JSON-Output Werte gesetzt, taucht im Markdown zusätzlich auf:
+
+```
+### 1. OGH 5Ob100/24x vom 01.01.2024 [Volltext] — Beschluss
+**Rechtsgebiet:** Zivilrecht, Mietrecht
+**Schlagworte:** Miete, Kündigung
+**Fundstelle:** SZ 2024/15
+**ECLI:** `ECLI:AT:OGH0002:2024:0050OB00100.24X.0101.000`
+_Anmerkung:_ Veröffentlicht in SZ 2024/15 ...
+```
+
+Alle Audit-Zeilen werden nur gerendert, wenn die API für diesen Treffer
+einen Wert liefert. Treffer ohne Wert zeigen die Zeile nicht — das ist
+Absicht (siehe Issue-#18-Lehre).
 
 ## Direkte HTML-Volltext-URLs
 
@@ -303,8 +335,11 @@ Trefferliste.
   Suchwort enthalten, ohne dass der API-Index ihn findet. Das Skript
   generiert in diesem Fall automatisch eine Google `site:`-Such-Query
   als Fallback (siehe Abschnitt *Web-Search-Fallback*).
-- **Timeout** → einmal mit kleinerem `--pro-seite` wiederholen (das Skript
-  retried automatisch zwei Mal mit 2/4 s Pause).
+- **Timeout / 5xx / Netzfehler nach allen Retries** → das Skript pingt
+  zusätzlich den `/version`-Endpoint und schreibt eine Diagnose nach
+  stderr: entweder „RIS-API erreichbar, aber /Judikatur scheitert — Query
+  prüfen" oder „RIS-API komplett nicht erreichbar". Bei 4xx wird *nicht*
+  diagnostiziert — die Antwort kennt die Ursache schon.
 - **API-Pflichtparameter unbekannt** → Default-Pfad: `--applikation Justiz`,
   `--suchworte ...` setzen.
 
